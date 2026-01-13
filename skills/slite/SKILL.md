@@ -14,24 +14,24 @@ Connect to Slite's API to search, read, create, update, and manage notes in the 
 
 Before first use, the user must configure their API key. Guide them with these steps:
 
-### Cómo obtener tu API key de Slite
+### How to get your Slite API key
 
-1. Abrí tu workspace de Slite en el navegador
-2. Hacé click en tu avatar/foto de perfil (esquina inferior izquierda)
-3. Seleccioná **Settings** (o Configuración)
-4. En el menú lateral, buscá **API** (puede estar en "Integrations" o al final)
-5. Hacé click en **Generate new token** o **Create API key**
-6. Copiá la key generada (solo se muestra una vez)
+1. Open your Slite workspace in the browser
+2. Click your avatar/profile picture (bottom left corner)
+3. Select **Settings**
+4. In the sidebar, look for **API** (may be under "Integrations" or at the bottom)
+5. Click **Generate new token** or **Create API key**
+6. Copy the generated key (only shown once)
 
-### Configurar la API key
+### Configure the API key
 
-Una vez que el usuario tenga la key, ejecutar:
+Once the user has the key, run:
 
 ```bash
 ~/.slite/config.sh setup
 ```
 
-El usuario debe pegar su API key cuando se le solicite.
+The user should paste their API key when prompted.
 
 ## Available Commands
 
@@ -111,7 +111,7 @@ All commands use the script: `~/.slite/slite`
 
 ### Search for a user
 ```bash
-~/.slite/slite search-users "juan"
+~/.slite/slite search-users "john"
 ```
 
 ## Response Handling

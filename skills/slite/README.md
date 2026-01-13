@@ -1,52 +1,51 @@
 # Slite CLI
 
-CLI para conectar cualquier AI agent (Claude, Codex, Cursor, etc.) con tu knowledge base de Slite.
+CLI to connect any AI agent (Claude Code, Codex, Cursor, etc.) with your Slite knowledge base.
 
-## Instalación
+## Installation
 
-Decile a tu agente:
+Tell your agent:
 
-> "Instalá la skill de Slite que está en este zip"
+> "Install the Slite skill from this repo"
 
-O manualmente:
+Or manually:
 
 ```bash
-unzip slite-skill.zip
-cd slite
+cd skills/slite
 ./install.sh
 ```
 
-## Configuración
+## Configuration
 
-Después de instalar, configurá tu API key:
+After installing, configure your API key:
 
 ```bash
 ~/.slite/config.sh setup
 ```
 
-O decile a tu agente:
-> "Corré el setup de Slite, te voy a dar mi API key"
+Or tell your agent:
+> "Run the Slite setup, I'll provide my API key"
 
-### Obtener API Key
+### Getting your API Key
 
-1. Entrá a tu workspace de Slite
-2. Hacé click en tu avatar (esquina inferior izquierda)
-3. Andá a **Settings → API**
-4. Click en **Generate new token**
-5. Copiá la key (solo se muestra una vez)
+1. Log in to your Slite workspace
+2. Click your avatar (bottom left corner)
+3. Go to **Settings → API**
+4. Click **Generate new token**
+5. Copy the key (only shown once)
 
-## Uso
+## Usage
 
-### Con cualquier AI agent
+### With any AI agent
 
-Pedile a tu agente cosas como:
+Ask your agent things like:
 
-- "Buscá en Slite documentación sobre onboarding"
-- "Mostrame la estructura de la sección de Engineering"
-- "Preguntale a Slite cómo hacemos deployments"
-- "Creá una nota en Slite con el resumen de esta reunión"
+- "Search Slite for onboarding documentation"
+- "Show me the structure of the Engineering section"
+- "Ask Slite how we handle deployments"
+- "Create a note in Slite with this meeting summary"
 
-### Comandos directos
+### Direct commands
 
 ```bash
 ~/.slite/slite search "onboarding"
@@ -56,75 +55,75 @@ Pedile a tu agente cosas como:
 ~/.slite/slite get <noteId>
 ```
 
-## Comandos disponibles
+## Available Commands
 
-### Lectura
+### Read
 
-| Comando | Descripción |
+| Command | Description |
 |---------|-------------|
-| `me` | Info del usuario |
-| `search <query> [flags]` | Buscar notas |
-| `ask <question> [--parent id]` | Preguntar a la IA |
-| `list [parentId]` | Listar notas |
-| `get <noteId> [md\|html]` | Obtener nota |
-| `children <noteId>` | Notas hijas directas |
-| `tree <noteId> [depth]` | Árbol de jerarquía |
-| `search-users <query>` | Buscar usuarios |
+| `me` | User info |
+| `search <query> [flags]` | Search notes |
+| `ask <question> [--parent id]` | Ask AI |
+| `list [parentId]` | List notes |
+| `get <noteId> [md\|html]` | Get note |
+| `children <noteId>` | Direct child notes |
+| `tree <noteId> [depth]` | Hierarchy tree |
+| `search-users <query>` | Search users |
 
-### Flags de búsqueda
+### Search Flags
 
-| Flag | Descripción |
+| Flag | Description |
 |------|-------------|
-| `--parent <id>` | Buscar dentro de una nota padre |
-| `--depth <n>` | Profundidad (1-3) |
-| `--include-archived` | Incluir archivadas |
-| `--after <date>` | Editadas después de (ISO) |
-| `--limit <n>` | Resultados por página |
+| `--parent <id>` | Search within a parent note |
+| `--depth <n>` | Depth (1-3) |
+| `--include-archived` | Include archived |
+| `--after <date>` | Edited after (ISO) |
+| `--limit <n>` | Results per page |
 
-### Escritura
+### Write
 
-| Comando | Descripción |
+| Command | Description |
 |---------|-------------|
-| `create <title> [md] [parent]` | Crear nota |
-| `update <noteId> [title] [md]` | Actualizar nota |
-| `delete <noteId>` | Borrar nota |
-| `archive <noteId> [bool]` | Archivar |
-| `verify <noteId> [until]` | Verificar |
-| `outdated <noteId> <reason>` | Marcar obsoleto |
+| `create <title> [md] [parent]` | Create note |
+| `update <noteId> [title] [md]` | Update note |
+| `delete <noteId>` | Delete note |
+| `archive <noteId> [bool]` | Archive |
+| `verify <noteId> [until]` | Verify |
+| `outdated <noteId> <reason>` | Mark outdated |
 
 ## Best Practices
 
-### Explorar la knowledge base
-1. Usá `list` para ver las notas de nivel superior
-2. Usá `tree <noteId>` para ver la estructura de una sección
-3. Usá `get <noteId>` para leer el contenido
+### Exploring the knowledge base
+1. Use `list` to see top-level notes
+2. Use `tree <noteId>` to see a section's structure
+3. Use `get <noteId>` to read content
 
-### Encontrar información
-| Necesidad | Comando |
-|-----------|---------|
-| Buscar keyword | `search "keyword"` |
-| Buscar en sección | `search "keyword" --parent <id>` |
-| Respuesta IA | `ask "pregunta"` |
-| Respuesta IA acotada | `ask "pregunta" --parent <id>` |
-| Ver estructura | `tree <id>` |
+### Finding information
+| Need | Command |
+|------|---------|
+| Search keyword | `search "keyword"` |
+| Search in section | `search "keyword" --parent <id>` |
+| AI answer | `ask "question"` |
+| Scoped AI answer | `ask "question" --parent <id>` |
+| View structure | `tree <id>` |
 
-### Flujo recomendado
+### Recommended flow
 ```
 list → tree → search/ask → get
 ```
 
-1. **list**: Ver qué secciones hay
-2. **tree**: Explorar estructura de una sección
-3. **search/ask**: Buscar información específica
-4. **get**: Leer el contenido completo
+1. **list**: See what sections exist
+2. **tree**: Explore a section's structure
+3. **search/ask**: Find specific information
+4. **get**: Read the full content
 
-## Estructura
+## File Structure
 
 ```
 ~/.slite/
-├── slite        # CLI principal
-├── config.sh    # Configuración de API key
-└── .env         # API key (no compartir!)
+├── slite        # Main CLI
+├── config.sh    # API key configuration
+└── .env         # API key (don't share!)
 ```
 
-Para usuarios de Claude Code, también se instala en `~/.claude/skills/slite/`.
+For Claude Code users, also installs to `~/.claude/skills/slite/`.
