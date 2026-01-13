@@ -1,27 +1,27 @@
 # Agent Skills
 
-Skills para agentes de IA (Claude Code, Codex, Cursor, etc.) del equipo de Sytex.
+Skills for AI agents (Claude Code, Codex, Cursor, etc.) by the Sytex team.
 
-## Skills disponibles
+## Available Skills
 
-| Skill | Descripción |
+| Skill | Description |
 |-------|-------------|
-| [slite](./skills/slite) | Conecta con la knowledge base de Slite |
+| [slite](./skills/slite) | Connect with Slite knowledge base |
 
-## Instalación
+## Installation
 
-### Opción 1: Decirle al agente
+### Option 1: Tell your agent
 
-> "Instalá la skill de Slite que está en este repo"
+> "Install the Slite skill from this repo"
 
-### Opción 2: Manual
+### Option 2: Manual
 
 ```bash
 cd skills/<skill-name>
 ./install.sh
 ```
 
-## Estructura
+## Structure
 
 ```
 agent-skills/
@@ -30,15 +30,15 @@ agent-skills/
     └── slite/
         ├── install.sh
         ├── README.md
-        ├── SKILL.md        # Para Claude Code
+        ├── SKILL.md        # For Claude Code
         └── scripts/
             ├── api.sh
             └── config.sh
 ```
 
-## Agregar una nueva skill
+## Adding a new skill
 
-1. Crear carpeta en `skills/<nombre>/`
-2. Incluir `install.sh` para instalación
-3. Incluir `README.md` con documentación
-4. Opcional: `SKILL.md` para Claude Code
+1. Create folder at `skills/<name>/`
+2. Include `install.sh` for installation
+3. Include `README.md` with documentation
+4. Optional: `SKILL.md` for Claude Code
