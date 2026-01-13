@@ -1,27 +1,16 @@
 #!/bin/bash
 # Slite API Configuration
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_DIR="$HOME/.claude/skills/slite"
+CONFIG_FILE="$CONFIG_DIR/.env"
 
-# Determine config location
-if [[ "$SCRIPT_DIR" == *".slite"* ]]; then
-    CONFIG_FILE="$HOME/.slite/.env"
-elif [[ "$SCRIPT_DIR" == *".claude/skills/slite"* ]]; then
-    CONFIG_FILE="$HOME/.slite/.env"
-else
-    CONFIG_FILE="$HOME/.slite/.env"
-fi
-
-mkdir -p "$(dirname "$CONFIG_FILE")"
+mkdir -p "$CONFIG_DIR"
 
 setup_api_key() {
     echo "Enter your Slite API key:"
     read -r api_key
 
-    if [[ -z "$api_key" ]]; then
-        echo "Error: API key cannot be empty"
-        exit 1
-    fi
+    [[ -z "$api_key" ]] && echo "Error: API key cannot be empty" && exit 1
 
     echo "SLITE_API_KEY=$api_key" > "$CONFIG_FILE"
     chmod 600 "$CONFIG_FILE"
@@ -29,11 +18,7 @@ setup_api_key() {
 }
 
 get_api_key() {
-    if [[ -f "$CONFIG_FILE" ]]; then
-        source "$CONFIG_FILE"
-        echo "$SLITE_API_KEY"
-        return 0
-    fi
+    [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE" && echo "$SLITE_API_KEY" && return 0
     echo ""
     return 1
 }

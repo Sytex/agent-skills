@@ -20,7 +20,7 @@ cd skills/slite
 After installing, configure your API key:
 
 ```bash
-~/.slite/config.sh setup
+~/.claude/skills/slite/config.sh setup
 ```
 
 Or tell your agent:
@@ -48,11 +48,11 @@ Ask your agent things like:
 ### Direct commands
 
 ```bash
-~/.slite/slite search "onboarding"
-~/.slite/slite search "deploy" --parent abc123 --depth 2
-~/.slite/slite tree abc123
-~/.slite/slite ask "How do we deploy?" --parent abc123
-~/.slite/slite get <noteId>
+~/.claude/skills/slite/slite search "onboarding"
+~/.claude/skills/slite/slite search "deploy" --parent abc123 --depth 2
+~/.claude/skills/slite/slite tree abc123
+~/.claude/skills/slite/slite ask "How do we deploy?" --parent abc123
+~/.claude/skills/slite/slite get <noteId>
 ```
 
 ## Available Commands
@@ -120,10 +120,9 @@ list → tree → search/ask → get
 ## File Structure
 
 ```
-~/.slite/
+~/.claude/skills/slite/
 ├── slite        # Main CLI
 ├── config.sh    # API key configuration
-└── .env         # API key (don't share!)
+├── .env         # API key (don't share!)
+└── SKILL.md     # Claude Code skill definition
 ```
-
-For Claude Code users, also installs to `~/.claude/skills/slite/`.

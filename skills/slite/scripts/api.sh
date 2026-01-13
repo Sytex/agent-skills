@@ -1,15 +1,14 @@
 #!/bin/bash
 # Slite API operations - Works with any AI agent
 
-# Load config from unified location
-CONFIG_FILE="$HOME/.slite/.env"
+CONFIG_FILE="$HOME/.claude/skills/slite/.env"
 source "$CONFIG_FILE" 2>/dev/null
 
 API_BASE="https://api.slite.com/v1"
 
 if [[ -z "$SLITE_API_KEY" ]]; then
     echo "Error: SLITE_API_KEY not configured."
-    echo "Run: ~/.slite/config.sh setup"
+    echo "Run: ~/.claude/skills/slite/config.sh setup"
     exit 1
 fi
 

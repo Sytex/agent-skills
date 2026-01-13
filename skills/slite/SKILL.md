@@ -1,7 +1,7 @@
 ---
 name: slite
 description: Interact with Slite knowledge base - search, read, create, and manage notes. Use when user wants to work with Slite documents.
-allowed-tools: Read, Bash(~/.slite/*:*)
+allowed-tools: Read, Bash(~/.claude/skills/slite/*:*)
 ---
 
 # Slite Integration
@@ -28,14 +28,14 @@ Before first use, the user must configure their API key. Guide them with these s
 Once the user has the key, run:
 
 ```bash
-~/.slite/config.sh setup
+~/.claude/skills/slite/config.sh setup
 ```
 
 The user should paste their API key when prompted.
 
 ## Available Commands
 
-All commands use the script: `~/.slite/slite`
+All commands use the script: `~/.claude/skills/slite/slite`
 
 ### Read Operations
 
@@ -76,42 +76,42 @@ All commands use the script: `~/.slite/slite`
 
 ### Search for notes
 ```bash
-~/.slite/slite search "onboarding"
+~/.claude/skills/slite/slite search "onboarding"
 ```
 
 ### Search within a specific section
 ```bash
-~/.slite/slite search "deploy" --parent abc123 --depth 2
+~/.claude/skills/slite/slite search "deploy" --parent abc123 --depth 2
 ```
 
 ### Explore note hierarchy
 ```bash
-~/.slite/slite tree abc123
+~/.claude/skills/slite/slite tree abc123
 ```
 
 ### Ask a question scoped to a section
 ```bash
-~/.slite/slite ask "How do we handle deployments?" --parent abc123
+~/.claude/skills/slite/slite ask "How do we handle deployments?" --parent abc123
 ```
 
 ### Get a specific note in markdown
 ```bash
-~/.slite/slite get abc123 md
+~/.claude/skills/slite/slite get abc123 md
 ```
 
 ### Create a new note
 ```bash
-~/.slite/slite create "Meeting Notes" "## Attendees\n- Alice\n- Bob"
+~/.claude/skills/slite/slite create "Meeting Notes" "## Attendees\n- Alice\n- Bob"
 ```
 
 ### Update a note
 ```bash
-~/.slite/slite update abc123 "New Title" "Updated content here"
+~/.claude/skills/slite/slite update abc123 "New Title" "Updated content here"
 ```
 
 ### Search for a user
 ```bash
-~/.slite/slite search-users "john"
+~/.claude/skills/slite/slite search-users "john"
 ```
 
 ## Response Handling
@@ -119,8 +119,8 @@ All commands use the script: `~/.slite/slite`
 All responses are JSON. Parse with `jq` when needed:
 
 ```bash
-~/.slite/slite search "docs" | jq '.hits[].title'
-~/.slite/slite tree abc123  # Already formatted as tree
+~/.claude/skills/slite/slite search "docs" | jq '.hits[].title'
+~/.claude/skills/slite/slite tree abc123  # Already formatted as tree
 ```
 
 ## Best Practices
