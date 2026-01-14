@@ -7,6 +7,7 @@ Skills for AI agents (Claude Code, Codex, Cursor, etc.) by the Sytex team.
 | Skill | Description |
 |-------|-------------|
 | [slite](./skills/slite) | Connect with Slite knowledge base |
+| [gmail](./skills/gmail) | Read Gmail messages via IMAP |
 
 ## Installation
 
@@ -27,7 +28,14 @@ cd skills/<skill-name>
 agent-skills/
 ├── README.md
 └── skills/
-    └── slite/
+    ├── slite/
+    │   ├── install.sh
+    │   ├── README.md
+    │   ├── SKILL.md        # For Claude Code
+    │   └── scripts/
+    │       ├── api.sh
+    │       └── config.sh
+    └── gmail/
         ├── install.sh
         ├── README.md
         ├── SKILL.md        # For Claude Code
