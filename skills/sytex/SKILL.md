@@ -1,6 +1,6 @@
 ---
 name: sytex
-description: Interact with Sytex API - manage tasks, projects, sites, materials, forms and automations. Use when user wants to work with Sytex data.
+description: Connect to app.sytex.io platform API. Use when user mentions Sytex platform, wants to query/create tasks, projects, forms, materials, or switch organizations. Note: "Sytex" refers to the platform, not an OperationalUnit.
 allowed-tools: Read, Bash(~/.claude/skills/sytex/*:*)
 ---
 
@@ -15,7 +15,14 @@ Run `~/.claude/skills/sytex/config.sh setup` and provide:
 - **Organization ID**: From URL `https://app.sytex.io/o/139/tasks` (139 is the ID)
 - **Base URL**: `https://app.sytex.io` (or custom instance)
 
-## Organization
+## Key Concepts
+
+- **Organization**: The tenant/company account (ID in URL: `/o/139/`). Configured via `config.sh org`.
+- **OperationalUnit**: A work area WITHIN an organization. Used when creating FormTemplates, assigning tasks, etc.
+
+These are NOT the same. Organization is the top-level account, OperationalUnit is a subdivision inside it.
+
+## Configuration
 
 Every API call shows the active organization in stderr: `[Sytex] Organization: 139`
 
@@ -23,8 +30,10 @@ Every API call shows the active organization in stderr: `[Sytex] Organization: 1
 |---------|-------------|
 | `~/.claude/skills/sytex/config.sh org` | Show current organization |
 | `~/.claude/skills/sytex/config.sh org <id>` | Switch to organization |
+| `~/.claude/skills/sytex/config.sh subdomain` | Show current subdomain |
+| `~/.claude/skills/sytex/config.sh subdomain <name>` | Switch subdomain (app, claro, ufinet, etc.) |
 
-**Always check the active organization before making changes.**
+**Always check the active organization and subdomain before making changes.**
 
 ## Commands
 
@@ -96,9 +105,11 @@ All commands use: `~/.claude/skills/sytex/sytex <command>`
 ## Examples
 
 ```bash
-# Check/switch organization
+# Check/switch organization and subdomain
 ~/.claude/skills/sytex/config.sh org
 ~/.claude/skills/sytex/config.sh org 142
+~/.claude/skills/sytex/config.sh subdomain
+~/.claude/skills/sytex/config.sh subdomain claro
 
 # List tasks
 ~/.claude/skills/sytex/sytex tasks --limit 10 --q "maintenance"
@@ -113,7 +124,7 @@ All commands use: `~/.claude/skills/sytex/sytex <command>`
 ~/.claude/skills/sytex/sytex automation "a08e40f4-..." '{"latitude": -31.34}'
 
 # Get user roles
-~/.claude/skills/sytex/sytex user-roles "Camilo Parra"
+~/.claude/skills/sytex/sytex user-roles "<user_name>"
 ```
 
 ## Response Format

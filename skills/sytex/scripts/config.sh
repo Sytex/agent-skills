@@ -54,12 +54,29 @@ org() {
     echo "Organization changed: $SYTEX_ORG_ID -> $new_org"
 }
 
+subdomain() {
+    [[ ! -f "$CONFIG_FILE" ]] && echo "Not configured. Run: config.sh setup" && exit 1
+
+    source "$CONFIG_FILE"
+
+    local current_subdomain=$(echo "$SYTEX_BASE_URL" | sed 's|https://\([^.]*\)\.sytex\.io|\1|')
+    local new_subdomain="$1"
+
+    [[ -z "$new_subdomain" ]] && echo "Subdomain: $current_subdomain" && exit 0
+
+    local new_url="https://${new_subdomain}.sytex.io"
+    sed -i '' "s|^SYTEX_BASE_URL=.*|SYTEX_BASE_URL=$new_url|" "$CONFIG_FILE"
+    echo "Subdomain changed: $current_subdomain -> $new_subdomain"
+    echo "Base URL: $new_url"
+}
+
 case "$1" in
     setup) setup ;;
     show) show ;;
     org) org "$2" ;;
+    subdomain) subdomain "$2" ;;
     *)
-        echo "Usage: $0 {setup|show|org [id]}"
+        echo "Usage: $0 {setup|show|org [id]|subdomain [name]}"
         exit 1
         ;;
 esac
