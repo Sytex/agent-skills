@@ -57,7 +57,7 @@ All commands use the script: `~/.claude/skills/gmail/gmail`
 |---------|-------------|
 | `list [flags]` | List messages from inbox |
 | `get <messageId>` | Read full message content |
-| `search <query> [limit]` | Search messages |
+| `search <query> [flags]` | Search messages |
 
 ### List Flags
 
@@ -66,6 +66,16 @@ All commands use the script: `~/.claude/skills/gmail/gmail`
 | `--label <folder>` | Folder name (INBOX, [Gmail]/Sent Mail, etc) |
 | `--limit <n>` | Max results (default: 10) |
 | `--unread` | Only unread messages |
+
+### Search Flags
+
+| Flag | Description |
+|------|-------------|
+| `--limit <n>` | Max results (default: 10) |
+| `--oldest` | Show oldest messages first (default: newest first) |
+| `--all` | Search in All Mail (includes archived emails) |
+| `--trash` | Search in Trash |
+| `--label <folder>` | Search in specific folder |
 
 ## Usage Examples
 
@@ -99,6 +109,21 @@ All commands use the script: `~/.claude/skills/gmail/gmail`
 ~/.claude/skills/gmail/gmail search "is:unread"
 ```
 
+### Search old emails (oldest first)
+```bash
+~/.claude/skills/gmail/gmail search older_than:1y --oldest --limit 20
+```
+
+### Search including archived emails
+```bash
+~/.claude/skills/gmail/gmail search "from:boss@company.com" --all
+```
+
+### Search by date range
+```bash
+~/.claude/skills/gmail/gmail search "from:client@company.com before:2023/06/01"
+```
+
 ### List all folders
 ```bash
 ~/.claude/skills/gmail/gmail labels
@@ -113,7 +138,13 @@ All commands use the script: `~/.claude/skills/gmail/gmail`
 | `subject:meeting` | Subject contains word |
 | `is:unread` | Unread messages |
 | `is:starred` | Starred messages |
+| `before:2024/01/15` | Before date (YYYY/MM/DD or YYYY-MM-DD) |
+| `after:2024/01/15` | After date |
+| `older_than:7d` | Older than N days/months/years (d/m/y) |
+| `newer_than:1m` | Newer than N days/months/years |
 | `<text>` | Search in body |
+
+Multiple terms can be combined: `from:boss@company.com older_than:6m`
 
 ## When to Use
 

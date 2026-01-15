@@ -134,13 +134,23 @@ mail.logout()
 }
 
 cmd_get() {
-    local msg_id="$1"
+    local msg_id=""
+    local label="INBOX"
 
-    [[ -z "$msg_id" ]] && echo "Usage: gmail get <message_id>" && exit 1
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --all) label="[Gmail]/All Mail"; shift ;;
+            --trash) label="[Gmail]/Trash"; shift ;;
+            --label) label="$2"; shift 2 ;;
+            *) [[ -z "$msg_id" ]] && msg_id="$1"; shift ;;
+        esac
+    done
+
+    [[ -z "$msg_id" ]] && echo "Usage: gmail get <message_id> [--all] [--trash] [--label FOLDER]" && exit 1
 
     run_python "
 mail = connect()
-mail.select('INBOX')
+mail.select('\"$label\"')
 status, data = mail.fetch(b'$msg_id', '(RFC822)')
 
 if status != 'OK':
@@ -170,44 +180,110 @@ mail.logout()
 }
 
 cmd_search() {
-    local query="$1"
-    local limit="${2:-10}"
+    local query=""
+    local limit="10"
+    local oldest="false"
+    local label="INBOX"
 
-    [[ -z "$query" ]] && echo "Usage: gmail search <query> [limit]" && exit 1
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --limit) limit="$2"; shift 2 ;;
+            --oldest) oldest="true"; shift ;;
+            --label) label="$2"; shift 2 ;;
+            --all) label="[Gmail]/All Mail"; shift ;;
+            --trash) label="[Gmail]/Trash"; shift ;;
+            *) [[ -z "$query" ]] && query="$1" || query="$query $1"; shift ;;
+        esac
+    done
 
-    # Convert Gmail-style queries to IMAP
-    local imap_query=""
-
-    if [[ "$query" == "is:unread" ]]; then
-        imap_query="UNSEEN"
-    elif [[ "$query" == is:starred ]]; then
-        imap_query="FLAGGED"
-    elif [[ "$query" =~ ^from: ]]; then
-        local from_addr="${query#from:}"
-        imap_query="FROM \"$from_addr\""
-    elif [[ "$query" =~ ^to: ]]; then
-        local to_addr="${query#to:}"
-        imap_query="TO \"$to_addr\""
-    elif [[ "$query" =~ ^subject: ]]; then
-        local subj="${query#subject:}"
-        imap_query="SUBJECT \"$subj\""
-    else
-        # Generic text search
-        imap_query="TEXT \"$query\""
-    fi
+    [[ -z "$query" ]] && echo "Usage: gmail search <query> [--limit N] [--oldest] [--all] [--trash] [--label FOLDER]" && exit 1
 
     run_python "
+from datetime import datetime, timedelta
+import re
+
+query = '''$query'''
+imap_parts = []
+
+# Parse query terms
+terms = query.split()
+i = 0
+while i < len(terms):
+    term = terms[i]
+
+    if term == 'is:unread':
+        imap_parts.append('UNSEEN')
+    elif term == 'is:starred':
+        imap_parts.append('FLAGGED')
+    elif term.startswith('from:'):
+        imap_parts.append(f'FROM \"{term[5:]}\"')
+    elif term.startswith('to:'):
+        imap_parts.append(f'TO \"{term[3:]}\"')
+    elif term.startswith('subject:'):
+        imap_parts.append(f'SUBJECT \"{term[8:]}\"')
+    elif term.startswith('before:'):
+        # Format: before:2024/01/15 or before:2024-01-15
+        date_str = term[7:].replace('-', '/')
+        dt = datetime.strptime(date_str, '%Y/%m/%d')
+        imap_date = dt.strftime('%d-%b-%Y')
+        imap_parts.append(f'BEFORE {imap_date}')
+    elif term.startswith('after:'):
+        date_str = term[6:].replace('-', '/')
+        dt = datetime.strptime(date_str, '%Y/%m/%d')
+        imap_date = dt.strftime('%d-%b-%Y')
+        imap_parts.append(f'SINCE {imap_date}')
+    elif term.startswith('older_than:'):
+        # Format: older_than:7d, older_than:2m, older_than:1y
+        val = term[11:]
+        match = re.match(r'(\d+)([dmy])', val)
+        if match:
+            num, unit = int(match.group(1)), match.group(2)
+            if unit == 'd':
+                dt = datetime.now() - timedelta(days=num)
+            elif unit == 'm':
+                dt = datetime.now() - timedelta(days=num*30)
+            elif unit == 'y':
+                dt = datetime.now() - timedelta(days=num*365)
+            imap_date = dt.strftime('%d-%b-%Y')
+            imap_parts.append(f'BEFORE {imap_date}')
+    elif term.startswith('newer_than:'):
+        val = term[11:]
+        match = re.match(r'(\d+)([dmy])', val)
+        if match:
+            num, unit = int(match.group(1)), match.group(2)
+            if unit == 'd':
+                dt = datetime.now() - timedelta(days=num)
+            elif unit == 'm':
+                dt = datetime.now() - timedelta(days=num*30)
+            elif unit == 'y':
+                dt = datetime.now() - timedelta(days=num*365)
+            imap_date = dt.strftime('%d-%b-%Y')
+            imap_parts.append(f'SINCE {imap_date}')
+    else:
+        imap_parts.append(f'TEXT \"{term}\"')
+    i += 1
+
+imap_query = ' '.join(imap_parts) if imap_parts else 'ALL'
+
 mail = connect()
-mail.select('INBOX')
-status, messages = mail.search(None, '$imap_query')
+mail.select('\"$label\"')
+status, messages = mail.search(None, imap_query)
 msg_ids = messages[0].split()
-msg_ids = msg_ids[-$limit:] if len(msg_ids) > $limit else msg_ids
-msg_ids = msg_ids[::-1]
+
+oldest_first = '$oldest' == 'true'
+if oldest_first:
+    msg_ids = msg_ids[:$limit]
+else:
+    msg_ids = msg_ids[-$limit:] if len(msg_ids) > $limit else msg_ids
+    msg_ids = msg_ids[::-1]
 
 if not msg_ids:
-    print('No messages found for: $query')
+    print(f'No messages found for: {query}')
     mail.logout()
     sys.exit(0)
+
+print(f'Found {len(messages[0].split())} total, showing {len(msg_ids)}:')
+print()
 
 for msg_id in msg_ids:
     status, data = mail.fetch(msg_id, '(RFC822.HEADER)')
@@ -241,10 +317,12 @@ case "$1" in
         cmd_list "$@"
         ;;
     get)
-        cmd_get "$2"
+        shift
+        cmd_get "$@"
         ;;
     search)
-        cmd_search "$2" "$3"
+        shift
+        cmd_search "$@"
         ;;
     *)
         echo "Gmail IMAP Commands"
@@ -258,8 +336,16 @@ case "$1" in
         echo "       --label <folder>         - Folder (INBOX, [Gmail]/Sent, etc)"
         echo "       --limit <n>              - Max results (default: 10)"
         echo "       --unread                 - Only unread messages"
-        echo "  get <messageId>               - Read full message"
-        echo "  search <query> [limit]        - Search messages"
+        echo "  get <messageId> [flags]       - Read full message"
+        echo "       --all                    - Read from All Mail"
+        echo "       --trash                  - Read from Trash"
+        echo "       --label <folder>         - Read from specific folder"
+        echo "  search <query> [flags]        - Search messages"
+        echo "       --limit <n>              - Max results (default: 10)"
+        echo "       --oldest                 - Show oldest first"
+        echo "       --all                    - Search in All Mail (includes archived)"
+        echo "       --trash                  - Search in Trash"
+        echo "       --label <folder>         - Search in specific folder"
         echo ""
         echo "Search query examples:"
         echo "  is:unread                     - Unread messages"
@@ -267,7 +353,15 @@ case "$1" in
         echo "  from:someone@example.com      - From specific sender"
         echo "  to:someone@example.com        - To specific recipient"
         echo "  subject:meeting               - Subject contains 'meeting'"
+        echo "  before:2024/01/15             - Before date"
+        echo "  after:2024/01/15              - After date"
+        echo "  older_than:7d                 - Older than 7 days (d/m/y)"
+        echo "  newer_than:1m                 - Newer than 1 month"
         echo "  <any text>                    - Search in body"
+        echo ""
+        echo "Examples:"
+        echo "  search older_than:1y --oldest --limit 20"
+        echo "  search from:boss@company.com before:2023/06/01"
         exit 1
         ;;
 esac
