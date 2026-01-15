@@ -10,14 +10,25 @@ Manage tasks, projects, sites, materials, forms, and automations via the Sytex A
 
 ## Setup
 
-Run `~/.claude/skills/sytex/scripts/config.sh setup` and provide:
+Run `~/.claude/skills/sytex/config.sh setup` and provide:
 - **Token**: Request from dev team (expires after 30 days, auto-refreshes on use)
 - **Organization ID**: From URL `https://app.sytex.io/o/139/tasks` (139 is the ID)
 - **Base URL**: `https://app.sytex.io` (or custom instance)
 
+## Organization
+
+Every API call shows the active organization in stderr: `[Sytex] Organization: 139`
+
+| Command | Description |
+|---------|-------------|
+| `~/.claude/skills/sytex/config.sh org` | Show current organization |
+| `~/.claude/skills/sytex/config.sh org <id>` | Switch to organization |
+
+**Always check the active organization before making changes.**
+
 ## Commands
 
-All commands use: `~/.claude/skills/sytex/scripts/api.sh <command>`
+All commands use: `~/.claude/skills/sytex/sytex <command>`
 
 ### Tasks
 | Command | Description |
@@ -85,20 +96,24 @@ All commands use: `~/.claude/skills/sytex/scripts/api.sh <command>`
 ## Examples
 
 ```bash
+# Check/switch organization
+~/.claude/skills/sytex/config.sh org
+~/.claude/skills/sytex/config.sh org 142
+
 # List tasks
-~/.claude/skills/sytex/scripts/api.sh tasks --limit 10 --q "maintenance"
+~/.claude/skills/sytex/sytex tasks --limit 10 --q "maintenance"
 
 # Update task status
-~/.claude/skills/sytex/scripts/api.sh task-status "TASK-001" "En proceso"
+~/.claude/skills/sytex/sytex task-status "TASK-001" "En proceso"
 
 # Create task
-~/.claude/skills/sytex/scripts/api.sh task-create '{"name": "New Task", "project": 1}'
+~/.claude/skills/sytex/sytex task-create '{"name": "New Task", "project": 1}'
 
 # Execute automation
-~/.claude/skills/sytex/scripts/api.sh automation "a08e40f4-..." '{"latitude": -31.34}'
+~/.claude/skills/sytex/sytex automation "a08e40f4-..." '{"latitude": -31.34}'
 
 # Get user roles
-~/.claude/skills/sytex/scripts/api.sh user-roles "Camilo Parra"
+~/.claude/skills/sytex/sytex user-roles "Camilo Parra"
 ```
 
 ## Response Format

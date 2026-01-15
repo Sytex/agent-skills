@@ -12,6 +12,8 @@ fi
 
 API_BASE="${SYTEX_BASE_URL:-https://app.sytex.io}/api"
 
+echo "[Sytex] Organization: $SYTEX_ORG_ID" >&2
+
 # HTTP request helpers
 api_get() {
     local endpoint="$1"

@@ -42,11 +42,24 @@ show() {
     echo "Base URL: $SYTEX_BASE_URL"
 }
 
+org() {
+    [[ ! -f "$CONFIG_FILE" ]] && echo "Not configured. Run: config.sh setup" && exit 1
+
+    source "$CONFIG_FILE"
+
+    local new_org="$1"
+    [[ -z "$new_org" ]] && echo "Organization: $SYTEX_ORG_ID" && exit 0
+
+    sed -i '' "s/^SYTEX_ORG_ID=.*/SYTEX_ORG_ID=$new_org/" "$CONFIG_FILE"
+    echo "Organization changed: $SYTEX_ORG_ID -> $new_org"
+}
+
 case "$1" in
     setup) setup ;;
     show) show ;;
+    org) org "$2" ;;
     *)
-        echo "Usage: $0 {setup|show}"
+        echo "Usage: $0 {setup|show|org [id]}"
         exit 1
         ;;
 esac
