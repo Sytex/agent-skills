@@ -83,6 +83,33 @@ All commands use: `~/.claude/skills/sytex/sytex <command>`
 |---------|-------------|
 | `automation <uuid> [json]` | Execute automation |
 
+### Workstructures (Workflows)
+| Command | Description |
+|---------|-------------|
+| `workstructures [flags]` | List workstructures |
+| `workstructure <id>` | Get workstructure details |
+| `workstructure-tasks [flags]` | List workstructure task templates |
+| `workstructure-task <id>` | Get workstructure task template details |
+
+**Note**: In the API, "workstructure" = "workflow" in the UI. A workstructure and its associated project share the same code (e.g., `ARG-004927207`).
+
+### Custom Fields
+| Command | Description |
+|---------|-------------|
+| `customfields --model MODEL --object-id ID` | Get custom fields for any entity |
+
+**Available models**: `workstructure`, `task`, `project`, `site`, `client`, `staff`, `form`, `materialoperation`
+
+**Important distinctions**:
+- `workstructuretask`: Task *templates* defined in a workflow structure
+- `task`: Actual task *instances* created from templates (these have custom field values)
+
+To get custom fields of tasks in a workflow:
+1. Find the workstructure: `workstructures --code ARG-004927207`
+2. Get its project ID from the response
+3. List tasks: `tasks --project <project_id>`
+4. Get custom fields: `customfields --model task --object-id <task_id>`
+
 ### Generic Endpoints
 | Command | Description |
 |---------|-------------|
@@ -125,6 +152,15 @@ All commands use: `~/.claude/skills/sytex/sytex <command>`
 
 # Get user roles
 ~/.claude/skills/sytex/sytex user-roles "<user_name>"
+
+# Find workflow by code
+~/.claude/skills/sytex/sytex workstructures --code ARG-004927207
+
+# Get custom fields of a workflow
+~/.claude/skills/sytex/sytex customfields --model workstructure --object-id 272608
+
+# Get custom fields of a task
+~/.claude/skills/sytex/sytex customfields --model task --object-id 3520400
 ```
 
 ## Response Format
