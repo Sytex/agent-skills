@@ -66,11 +66,15 @@ All commands use the script: `~/.claude/skills/slite/slite`
 | Command | Description |
 |---------|-------------|
 | `create <title> [markdown] [parentId]` | Create a new note |
-| `update <noteId> [title] [markdown]` | Update note content |
+| `append <noteId> <markdown>` | **SAFE**: Add content to END of note |
+| `prepend <noteId> <markdown>` | **SAFE**: Add content to START of note |
+| `update <noteId> [title] [markdown]` | **DANGER**: REPLACES entire note content! |
 | `delete <noteId>` | Delete note (irreversible!) |
 | `archive <noteId> [true\|false]` | Archive or unarchive |
 | `verify <noteId> [until]` | Mark as verified |
 | `outdated <noteId> <reason>` | Flag as outdated |
+
+> **WARNING**: The `update` command REPLACES all existing content. Use `append` or `prepend` to add content without losing existing content.
 
 ## Usage Examples
 
@@ -104,9 +108,19 @@ All commands use the script: `~/.claude/skills/slite/slite`
 ~/.claude/skills/slite/slite create "Meeting Notes" "## Attendees\n- Alice\n- Bob"
 ```
 
-### Update a note
+### Add content to a note (SAFE - preserves existing content)
 ```bash
-~/.claude/skills/slite/slite update abc123 "New Title" "Updated content here"
+# Add to end of note
+~/.claude/skills/slite/slite append abc123 "## New Section\n\nContent here"
+
+# Add to beginning of note
+~/.claude/skills/slite/slite prepend abc123 "## Important Notice\n\nRead this first!"
+```
+
+### Replace entire note (DANGEROUS - loses existing content!)
+```bash
+# Only use when you want to REPLACE everything
+~/.claude/skills/slite/slite update abc123 "New Title" "This replaces ALL content"
 ```
 
 ### Search for a user
@@ -161,3 +175,4 @@ Activate this skill when user:
 - `tree` is useful for understanding document structure before searching
 - Delete is irreversible - always confirm with user first
 - Note IDs can be found in search results, tree output, or note URLs
+- **CRITICAL**: Always use `append` or `prepend` to add content to existing notes. The `update` command REPLACES all content and will delete existing text, images, and formatting!
