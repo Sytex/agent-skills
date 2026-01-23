@@ -1,6 +1,6 @@
 # Slite CLI
 
-CLI to connect any AI agent (Claude Code, Codex, Cursor, etc.) with your Slite knowledge base.
+CLI to connect any AI coding agent with your Slite knowledge base.
 
 ## Installation
 
@@ -124,5 +124,5 @@ list → tree → search/ask → get
 ├── slite        # Main CLI
 ├── config.sh    # API key configuration
 ├── .env         # API key (don't share!)
-└── SKILL.md     # Claude Code skill definition
+└── SKILL.md     # Skill definition
 ```

@@ -1,6 +1,6 @@
 # Agent Skills
 
-Skills for AI agents (Claude Code, Codex, Cursor, etc.) by the Sytex team.
+Skills for AI coding agents by the Sytex team.
 
 ## Available Skills
 

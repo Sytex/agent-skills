@@ -8,7 +8,7 @@ Read and search Gmail messages using IMAP with App Passwords.
 - Search emails by sender, subject, or content
 - Read full email content
 - Browse folders/labels
-- Works with any AI agent (Claude Code, Codex, Cursor, etc.)
+- Works with any AI coding agent
 
 ## Requirements
 
@@ -101,9 +101,9 @@ Enter your Gmail address and App Password when prompted.
 | `is:starred` | Starred messages |
 | `<text>` | Search in body |
 
-## Claude Code Integration
+## Agent Integration
 
-After installation, use with Claude Code:
+After installation, use with your AI agent:
 
 ```
 /gmail
@@ -121,7 +121,7 @@ Or ask naturally:
 ├── .env          # Credentials (chmod 600)
 ├── gmail         # Main script
 ├── config.sh     # Configuration
-└── SKILL.md      # Claude Code skill definition
+└── SKILL.md      # Skill definition
 ```
 
 ## Security
