@@ -49,3 +49,9 @@ agent-skills/
 2. Include `install.sh` for installation
 3. Include `README.md` with documentation
 4. Include `SKILL.md` for the agent
+
+## Guidelines
+
+**Skills must be agent-agnostic.** Do not reference specific AI agents (Claude, Codex, Gemini, ChatGPT, Cursor, etc.) in documentation or code. Write for "AI coding agents" generically.
+
+The installation path is determined by the target agent, not the skill itself.
