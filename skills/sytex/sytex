@@ -4,15 +4,43 @@
 CONFIG_FILE="$HOME/.claude/skills/sytex/.env"
 source "$CONFIG_FILE" 2>/dev/null
 
-if [[ -z "$SYTEX_TOKEN" || -z "$SYTEX_ORG_ID" ]]; then
+if [[ -z "$SYTEX_TOKEN" ]]; then
     echo "Error: Sytex not configured."
     echo "Run: ~/.claude/skills/sytex/config.sh setup"
     exit 1
 fi
 
-API_BASE="${SYTEX_BASE_URL:-https://app.sytex.io}/api"
+# Parse global flags (--org and --base-url) before command
+SYTEX_ORG_ID=""
+SYTEX_BASE_URL=""
 
-echo "[Sytex] Organization: $SYTEX_ORG_ID" >&2
+args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --org) SYTEX_ORG_ID="$2"; shift 2 ;;
+        --base-url) SYTEX_BASE_URL="$2"; shift 2 ;;
+        *) args+=("$1"); shift ;;
+    esac
+done
+set -- "${args[@]}"
+
+# Commands that don't require --org and --base-url
+NO_FLAGS_COMMANDS="find-org"
+# Commands that only require --base-url (not --org)
+BASE_URL_ONLY_COMMANDS="orgs"
+
+if [[ " $NO_FLAGS_COMMANDS " == *" $1 "* ]]; then
+    : # No flags required
+elif [[ " $BASE_URL_ONLY_COMMANDS " == *" $1 "* ]]; then
+    [[ -z "$SYTEX_BASE_URL" ]] && echo "Error: --base-url required" && exit 1
+else
+    [[ -z "$SYTEX_BASE_URL" ]] && echo "Error: --base-url required" && exit 1
+    [[ -z "$SYTEX_ORG_ID" ]] && echo "Error: --org required" && exit 1
+fi
+
+API_BASE="${SYTEX_BASE_URL}/api"
+
+[[ -n "$SYTEX_ORG_ID" ]] && echo "[Sytex] Organization: $SYTEX_ORG_ID | Base: $SYTEX_BASE_URL" >&2
 
 # HTTP request helpers
 api_get() {
@@ -386,6 +414,78 @@ cmd_workstructure_task() {
     api_get "/workstructuretask/${wst_id}/"
 }
 
+# === ORGANIZATIONS ===
+
+cmd_orgs() {
+    local params=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --limit) params+=("limit=$2"); shift 2 ;;
+            --offset) params+=("offset=$2"); shift 2 ;;
+            --q) params+=("q=$(url_encode "$2")"); shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local query=$(build_query "${params[@]}")
+    [[ -n "$query" ]] && query="?$query"
+    api_get "/organization/${query}"
+}
+
+cmd_find_org() {
+    local search="$1"
+    [[ -z "$search" ]] && echo "Error: search term required" && exit 1
+
+    local instances=(
+        "app:https://app.sytex.io"
+        "claro:https://claro.sytex.io"
+        "ufinet:https://ufinet.sytex.io"
+        "dt:https://dt.sytex.io"
+        "adc:https://adc.sytex.io"
+        "alfred:https://alfred.sytex.io"
+        "atis:https://atis.sytex.io"
+        "exsei:https://exsei.sytex.io"
+        "integrar:https://integrar.sytex.io"
+        "torresec:https://torresec.sytex.io"
+        "app_eu:https://app.eu.sytex.io"
+    )
+
+    echo "Searching for '$search' across all instances..." >&2
+    echo "{"
+    echo "  \"search\": \"$search\","
+    echo "  \"results\": ["
+
+    local first=true
+    for instance in "${instances[@]}"; do
+        local name="${instance%%:*}"
+        local url="${instance#*:}"
+
+        local result=$(curl -s -X GET "${url}/api/organization/?q=$(url_encode "$search")&limit=10" \
+            -H "Authorization: Token $SYTEX_TOKEN" \
+            -H "Accept: application/json" 2>/dev/null)
+
+        local count=$(echo "$result" | jq -r '.count // 0' 2>/dev/null)
+        [[ "$count" == "0" || "$count" == "null" ]] && continue
+
+        local orgs=$(echo "$result" | jq -c '.results[]? | {id, name}' 2>/dev/null)
+        [[ -z "$orgs" ]] && continue
+
+        while IFS= read -r org; do
+            [[ -z "$org" ]] && continue
+            local org_id=$(echo "$org" | jq -r '.id')
+            local org_name=$(echo "$org" | jq -r '.name')
+
+            [[ "$first" != "true" ]] && echo ","
+            first=false
+            echo "    {\"instance\": \"$name\", \"base_url\": \"$url\", \"org_id\": $org_id, \"org_name\": \"$org_name\"}"
+        done <<< "$orgs"
+    done
+
+    echo ""
+    echo "  ]"
+    echo "}"
+}
+
 # === GENERIC ===
 
 cmd_get() {
@@ -475,6 +575,10 @@ show_help() {
     echo "AUTOMATIONS:"
     echo "  automation <uuid> [json]           Execute automation"
     echo ""
+    echo "ORGANIZATIONS:"
+    echo "  orgs [--q QUERY]                   List organizations in current instance"
+    echo "  find-org <name>                    Search org by name across ALL instances"
+    echo ""
     echo "GENERIC (for any endpoint):"
     echo "  get <endpoint>                     GET request"
     echo "  post <endpoint> [json]             POST request"
@@ -518,5 +622,7 @@ case "$1" in
     put) cmd_put "$2" "$3" ;;
     patch) cmd_patch "$2" "$3" ;;
     delete) cmd_delete "$2" ;;
+    orgs) shift; cmd_orgs "$@" ;;
+    find-org) cmd_find_org "$2" ;;
     *) show_help; exit 1 ;;
 esac

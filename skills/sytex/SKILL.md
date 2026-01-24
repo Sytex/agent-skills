@@ -8,36 +8,107 @@ allowed-tools: Read, Bash(~/.claude/skills/sytex/*:*)
 
 Manage tasks, projects, sites, materials, forms, and automations via the Sytex API.
 
+## CRITICAL: Confirmation Required
+
+**ALWAYS ask the user for confirmation before executing ANY Sytex command.**
+
+Before running a command, present a brief summary:
+- What action will be performed (GET, POST, PATCH, DELETE)
+- Which organization and base URL will be used
+- What data will be sent (if applicable)
+
+Example:
+> "I'm about to list tasks from **org 141** on **app.sytex.io** with limit 10. Proceed?"
+
+**Never execute without explicit user approval.**
+
+## CRITICAL: Organization Resolution
+
+**Both `--base-url` and `--org` are MANDATORY.** If the user doesn't provide both, you MUST resolve them before executing.
+
+### Sytex Instances
+
+| Instance | URL | Type |
+|----------|-----|------|
+| app | https://app.sytex.io | Multi-tenant (many orgs) |
+| app_eu | https://app.eu.sytex.io | Multi-tenant EU (many orgs) |
+| claro | https://claro.sytex.io | Dedicated (1 org) |
+| ufinet | https://ufinet.sytex.io | Dedicated (1 org) |
+| dt | https://dt.sytex.io | Dedicated (1 org) |
+| adc | https://adc.sytex.io | Dedicated (1 org) |
+| alfred | https://alfred.sytex.io | Dedicated (1 org) |
+| atis | https://atis.sytex.io | Dedicated (1 org) |
+| exsei | https://exsei.sytex.io | Dedicated (1 org) |
+| integrar | https://integrar.sytex.io | Dedicated (1 org) |
+| torresec | https://torresec.sytex.io | Dedicated (1 org) |
+
+### Resolution Flow
+
+**If user provides org NAME (not ID):**
+1. Run `find-org "<name>"` to search across ALL instances
+2. If multiple matches found, ask user to clarify
+3. Use the returned `base_url` and `org_id`
+
+**If user provides only org ID:**
+1. Run `find-org` or `orgs --q <id>` on likely instances to find it
+2. Once found, use that instance's base_url
+
+**If user provides only instance name:**
+1. Run `orgs` on that instance to list organizations
+2. Ask user which org to use
+
+**If user provides NEITHER:**
+1. ASK the user for org name or ID before proceeding
+2. Never assume defaults when user context suggests a specific org
+
+### Discovery Commands
+
+```bash
+# Search org by name across ALL instances (no flags needed)
+~/.claude/skills/sytex/sytex find-org "Telecom Argentina"
+
+# List orgs in a specific instance (only --base-url needed)
+~/.claude/skills/sytex/sytex --base-url https://app.sytex.io orgs --q "telecom"
+```
+
 ## Setup
 
 Run `~/.claude/skills/sytex/config.sh setup` and provide:
 - **Token**: Request from dev team (expires after 30 days, auto-refreshes on use)
-- **Organization ID**: From URL `https://app.sytex.io/o/139/tasks` (139 is the ID)
-- **Base URL**: `https://app.sytex.io` (or custom instance)
+
+That's it. The token is the only persisted configuration.
+
+## Required Flags
+
+**Every command (except `find-org`) requires both flags:**
+
+```bash
+~/.claude/skills/sytex/sytex --base-url <URL> --org <ID> <command>
+```
+
+Example:
+```bash
+~/.claude/skills/sytex/sytex --base-url https://app.sytex.io --org 141 tasks --limit 10
+```
+
+**Nothing is persisted. You must specify both on every call.**
 
 ## Key Concepts
 
-- **Organization**: The tenant/company account (ID in URL: `/o/139/`). Configured via `config.sh org`.
+- **Organization**: The tenant/company account (ID in URL: `/o/139/`). Default: 141.
 - **OperationalUnit**: A work area WITHIN an organization. Used when creating FormTemplates, assigning tasks, etc.
 
 These are NOT the same. Organization is the top-level account, OperationalUnit is a subdivision inside it.
 
-## Configuration
-
-Every API call shows the active organization in stderr: `[Sytex] Organization: 139`
-
-| Command | Description |
-|---------|-------------|
-| `~/.claude/skills/sytex/config.sh org` | Show current organization |
-| `~/.claude/skills/sytex/config.sh org <id>` | Switch to organization |
-| `~/.claude/skills/sytex/config.sh subdomain` | Show current subdomain |
-| `~/.claude/skills/sytex/config.sh subdomain <name>` | Switch subdomain (app, claro, ufinet, etc.) |
-
-**Always check the active organization and subdomain before making changes.**
-
 ## Commands
 
-All commands use: `~/.claude/skills/sytex/sytex <command>`
+All commands use: `~/.claude/skills/sytex/sytex --base-url <URL> --org <ID> <command>`
+
+### Global Flags (REQUIRED for all commands except find-org)
+| Flag | Description |
+|------|-------------|
+| `--base-url <url>` | Instance URL (e.g., https://app.sytex.io) |
+| `--org <id>` | Organization ID |
 
 ### Tasks
 | Command | Description |
@@ -110,6 +181,12 @@ To get custom fields of tasks in a workflow:
 3. List tasks: `tasks --project <project_id>`
 4. Get custom fields: `customfields --model task --object-id <task_id>`
 
+### Organizations (Discovery - different flag requirements)
+| Command | Requires | Description |
+|---------|----------|-------------|
+| `find-org <name>` | (none) | Search org by name across ALL instances |
+| `orgs [--q QUERY]` | `--base-url` only | List organizations in specified instance |
+
 ### Generic Endpoints
 | Command | Description |
 |---------|-------------|
@@ -132,14 +209,17 @@ To get custom fields of tasks in a workflow:
 ## Examples
 
 ```bash
-# Check/switch organization and subdomain
-~/.claude/skills/sytex/config.sh org
-~/.claude/skills/sytex/config.sh org 142
-~/.claude/skills/sytex/config.sh subdomain
-~/.claude/skills/sytex/config.sh subdomain claro
+# DISCOVERY: Find org by name across all instances (no flags needed)
+~/.claude/skills/sytex/sytex find-org "Telecom Argentina"
 
-# List tasks
-~/.claude/skills/sytex/sytex tasks --limit 10 --q "maintenance"
+# DISCOVERY: List orgs in a specific instance (only --base-url needed)
+~/.claude/skills/sytex/sytex --base-url https://app.sytex.io orgs --q "telecom"
+
+# List tasks (--base-url and --org are REQUIRED)
+~/.claude/skills/sytex/sytex --base-url https://app.sytex.io --org 141 tasks --limit 10 --q "maintenance"
+
+# Use dedicated instance
+~/.claude/skills/sytex/sytex --base-url https://claro.sytex.io --org 1 tasks
 
 # Update task status
 ~/.claude/skills/sytex/sytex task-status "TASK-001" "En proceso"
