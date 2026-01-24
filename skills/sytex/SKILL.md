@@ -1,7 +1,9 @@
 ---
 name: sytex
-description: Connect to app.sytex.io platform API. Use when user mentions Sytex platform, wants to query/create tasks, projects, forms, materials, or switch organizations. Note: "Sytex" refers to the platform, not an OperationalUnit.
-allowed-tools: Read, Bash(~/.claude/skills/sytex/*:*)
+description: Connect to Sytex platform API. Use when user mentions Sytex, app, claro, ufinet, dt, adc, alfred, atis, exsei, integrar, torresec, or app_eu instances. Handles tasks, projects, forms, materials, organizations.
+allowed-tools:
+  - Read
+  - Bash(~/.claude/skills/sytex/*:*)
 ---
 
 # Sytex API Integration
