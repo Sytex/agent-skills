@@ -10,106 +10,33 @@ allowed-tools:
 
 Manage tasks, projects, sites, materials, forms, and automations via the Sytex API.
 
-## CRITICAL: Confirmation Required
-
-**ALWAYS ask the user for confirmation before executing ANY Sytex command.**
-
-Before running a command, present a brief summary:
-- What action will be performed (GET, POST, PATCH, DELETE)
-- Which organization and base URL will be used
-- What data will be sent (if applicable)
-
-Example:
-> "I'm about to list tasks from **org 141** on **app.sytex.io** with limit 10. Proceed?"
-
-**Never execute without explicit user approval.**
-
-## CRITICAL: Organization Resolution
-
-**Both `--base-url` and `--org` are MANDATORY.** If the user doesn't provide both, you MUST resolve them before executing.
-
-### Sytex Instances
-
-| Instance | URL | Type |
-|----------|-----|------|
-| app | https://app.sytex.io | Multi-tenant (many orgs) |
-| app_eu | https://app.eu.sytex.io | Multi-tenant EU (many orgs) |
-| claro | https://claro.sytex.io | Dedicated (1 org) |
-| ufinet | https://ufinet.sytex.io | Dedicated (1 org) |
-| dt | https://dt.sytex.io | Dedicated (1 org) |
-| adc | https://adc.sytex.io | Dedicated (1 org) |
-| atis | https://atis.sytex.io | Dedicated (1 org) |
-| exsei | https://exsei.sytex.io | Dedicated (1 org) |
-| integrar | https://integrar.sytex.io | Dedicated (1 org) |
-| torresec | https://torresec.sytex.io | Dedicated (1 org) |
-
-### Resolution Flow
-
-**If user provides org NAME (not ID):**
-1. Run `find-org "<name>"` to search across ALL instances
-2. If multiple matches found, ask user to clarify
-3. Use the returned `base_url` and `org_id`
-
-**If user provides only org ID:**
-1. Run `find-org` or `orgs --q <id>` on likely instances to find it
-2. Once found, use that instance's base_url
-
-**If user provides only instance name:**
-1. Run `orgs` on that instance to list organizations
-2. Ask user which org to use
-
-**If user provides NEITHER:**
-1. ASK the user for org name or ID before proceeding
-2. Never assume defaults when user context suggests a specific org
-
-### Discovery Commands
-
-```bash
-# Search org by name across ALL instances (no flags needed)
-~/.claude/skills/sytex/sytex find-org "Telecom Argentina"
-
-# List orgs in a specific instance (only --base-url needed)
-~/.claude/skills/sytex/sytex --base-url https://app.sytex.io orgs --q "telecom"
-```
-
 ## Setup
 
-Run `~/.claude/skills/sytex/config.sh setup` and provide:
-- **Token**: Request from dev team (expires after 30 days, auto-refreshes on use)
-
-That's it. The token is the only persisted configuration.
+Run `~/.claude/skills/sytex/config.sh setup` and provide your token.
 
 ## Required Flags
 
-**Every command (except `find-org`) requires both flags:**
+Every command (except `find-org`) requires:
 
 ```bash
 ~/.claude/skills/sytex/sytex --base-url <URL> --org <ID> <command>
 ```
 
-Example:
+**Always ask user for confirmation before executing commands.**
+
+### Finding the org
+
+If user provides org name instead of ID, use `find-org` first:
+
 ```bash
-~/.claude/skills/sytex/sytex --base-url https://app.sytex.io --org 141 tasks --limit 10
+~/.claude/skills/sytex/sytex find-org "Telecom Argentina"
 ```
 
-**Nothing is persisted. You must specify both on every call.**
-
-## Key Concepts
-
-- **Organization**: The tenant/company account (ID in URL: `/o/139/`). Default: 141.
-- **OperationalUnit**: A work area WITHIN an organization. Used when creating FormTemplates, assigning tasks, etc.
-
-These are NOT the same. Organization is the top-level account, OperationalUnit is a subdivision inside it.
+**Instances**: app, app_eu, claro, ufinet, dt, adc, atis, exsei, integrar, torresec (all at `https://<name>.sytex.io`, except app_eu: `https://app.eu.sytex.io`)
 
 ## Commands
 
-All commands use: `~/.claude/skills/sytex/sytex --base-url <URL> --org <ID> <command>`
-
-### Global Flags (REQUIRED for all commands except find-org)
-| Flag | Description |
-|------|-------------|
-| `--base-url <url>` | Instance URL (e.g., https://app.sytex.io) |
-| `--org <id>` | Organization ID |
+All commands: `~/.claude/skills/sytex/sytex --base-url <URL> --org <ID> <command>`
 
 ### Tasks
 | Command | Description |
@@ -142,8 +69,6 @@ All commands use: `~/.claude/skills/sytex/sytex --base-url <URL> --org <ID> <com
 | `forms [flags]` | List form instances |
 | `form <id>` | Get form details |
 
-**Note**: Forms are instances created from FormTemplates. To create or manage FormTemplates, see [FORM_TEMPLATES.md](FORM_TEMPLATES.md).
-
 ### Staff
 | Command | Description |
 |---------|-------------|
@@ -157,63 +82,37 @@ All commands use: `~/.claude/skills/sytex/sytex --base-url <URL> --org <ID> <com
 
 ### Task Templates
 
-**IMPORTANT: There are TWO types of task templates in Sytex:**
+**Two types exist - ask user which one or search both:**
 
-| Type | Endpoint | Use Case |
-|------|----------|----------|
-| **TaskTemplate** | `/api/tasktemplate/` | Simple reusable templates for individual tasks |
-| **WorkStructureTask** | `/api/workstructuretask/` | Task templates within a workflow (hierarchy, dependencies) |
+| Type | Command | Endpoint |
+|------|---------|----------|
+| Simple templates | `tasktemplates`, `tasktemplate <id>` | `/api/tasktemplate/` |
+| Workflow tasks | `workstructure-tasks`, `workstructure-task <id>` | `/api/workstructuretask/` |
 
-**When the user asks for a "plantilla" or "template":**
-1. Ask which type they mean, OR
-2. Search both endpoints if they provide an ID
-
-#### TaskTemplate (Simple Templates)
-| Command | Description |
-|---------|-------------|
-| `tasktemplates [flags]` | List simple task templates |
-| `tasktemplate <id>` | Get task template details |
-
-#### Workstructures (Workflows)
+### Workstructures (Workflows)
 | Command | Description |
 |---------|-------------|
 | `workstructures [flags]` | List workstructures |
 | `workstructure <id>` | Get workstructure details |
-| `workstructure-tasks [flags]` | List workflow task templates |
-| `workstructure-task <id>` | Get workflow task template details |
-
-**Note**: In the API, "workstructure" = "workflow" in the UI. A workstructure and its associated project share the same code (e.g., `ARG-004927207`).
 
 ### Custom Fields
 | Command | Description |
 |---------|-------------|
-| `customfields --model MODEL --object-id ID` | Get custom fields for any entity |
+| `customfields --model MODEL --object-id ID` | Get custom fields |
 
-**Available models**: `workstructure`, `task`, `project`, `site`, `client`, `staff`, `form`, `materialoperation`
+Models: `workstructure`, `task`, `project`, `site`, `client`, `staff`, `form`, `materialoperation`
 
-**Important distinctions**:
-- `tasktemplate`: Simple reusable task templates (endpoint: `/api/tasktemplate/`)
-- `workstructuretask`: Task templates within a workflow structure (endpoint: `/api/workstructuretask/`)
-- `task`: Actual task *instances* created from templates (these have custom field values)
-
-To get custom fields of tasks in a workflow:
-1. Find the workstructure: `workstructures --code ARG-004927207`
-2. Get its project ID from the response
-3. List tasks: `tasks --project <project_id>`
-4. Get custom fields: `customfields --model task --object-id <task_id>`
-
-### Organizations (Discovery - different flag requirements)
+### Organizations
 | Command | Requires | Description |
 |---------|----------|-------------|
-| `find-org <name>` | (none) | Search org by name across ALL instances |
-| `orgs [--q QUERY]` | `--base-url` only | List organizations in specified instance |
+| `find-org <name>` | (none) | Search across ALL instances |
+| `orgs [--q QUERY]` | `--base-url` only | List orgs in one instance |
 
 ### Generic Endpoints
 | Command | Description |
 |---------|-------------|
 | `get <endpoint>` | GET any endpoint |
 | `post <endpoint> [json]` | POST to any endpoint |
-| `put <endpoint> <json>` | PUT to any endpoint |
 | `patch <endpoint> <json>` | PATCH any endpoint |
 | `delete <endpoint>` | DELETE any endpoint |
 
@@ -224,59 +123,23 @@ To get custom fields of tasks in a workflow:
 | `--limit <n>` | Results per page |
 | `--offset <n>` | Skip first N results |
 | `--q <query>` | Search text |
-| `--status <id>` | Filter by status ID |
 | `--ordering <field>` | Sort (prefix `-` for desc) |
 
 ## Examples
 
 ```bash
-# DISCOVERY: Find org by name across all instances (no flags needed)
-~/.claude/skills/sytex/sytex find-org "Telecom Argentina"
+# Find org across all instances
+~/.claude/skills/sytex/sytex find-org "TMA"
 
-# DISCOVERY: List orgs in a specific instance (only --base-url needed)
-~/.claude/skills/sytex/sytex --base-url https://app.sytex.io orgs --q "telecom"
+# List tasks
+~/.claude/skills/sytex/sytex --base-url https://app.sytex.io --org 141 tasks --limit 10
 
-# List tasks (--base-url and --org are REQUIRED)
-~/.claude/skills/sytex/sytex --base-url https://app.sytex.io --org 141 tasks --limit 10 --q "maintenance"
+# Get task template (simple)
+~/.claude/skills/sytex/sytex --base-url https://app.sytex.io --org 217 tasktemplate 1045
 
-# Use dedicated instance
-~/.claude/skills/sytex/sytex --base-url https://claro.sytex.io --org 1 tasks
-
-# Update task status
-~/.claude/skills/sytex/sytex task-status "TASK-001" "En proceso"
-
-# Create task
-~/.claude/skills/sytex/sytex task-create '{"name": "New Task", "project": 1}'
+# Get workflow task template
+~/.claude/skills/sytex/sytex --base-url https://app.sytex.io --org 217 workstructure-task 1045
 
 # Execute automation
-~/.claude/skills/sytex/sytex automation "a08e40f4-..." '{"latitude": -31.34}'
-
-# Get user roles
-~/.claude/skills/sytex/sytex user-roles "<user_name>"
-
-# Find workflow by code
-~/.claude/skills/sytex/sytex workstructures --code ARG-004927207
-
-# Get custom fields of a workflow
-~/.claude/skills/sytex/sytex customfields --model workstructure --object-id 272608
-
-# Get custom fields of a task
-~/.claude/skills/sytex/sytex customfields --model task --object-id 3520400
+~/.claude/skills/sytex/sytex --base-url https://app.sytex.io --org 141 automation "uuid-here" '{"key": "value"}'
 ```
-
-## Response Format
-
-All responses are JSON. Paginated results:
-```json
-{"count": 150, "next": "...", "previous": null, "results": [...]}
-```
-
-## API Response Codes
-
-| Code | Meaning |
-|------|---------|
-| 200/201 | Success |
-| 400 | Validation error |
-| 401 | Invalid/expired token |
-| 403 | Permission denied |
-| 404 | Not found |
