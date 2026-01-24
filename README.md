@@ -4,11 +4,12 @@ Skills for AI coding agents by the Sytex team.
 
 ## Available Skills
 
-| Skill                   | Description                        |
-| ----------------------- | ---------------------------------- |
-| [slite](./skills/slite) | Connect with Slite knowledge base  |
-| [gmail](./skills/gmail) | Read Gmail messages via IMAP       |
-| [sytex](./skills/sytex) | Interact with Sytex production API |
+| Skill                     | Description                        |
+| ------------------------- | ---------------------------------- |
+| [slite](./skills/slite)   | Connect with Slite knowledge base  |
+| [gmail](./skills/gmail)   | Read Gmail messages via IMAP       |
+| [sytex](./skills/sytex)   | Interact with Sytex production API |
+| [sentry](./skills/sentry) | Monitor errors and issues          |
 
 ## Installation
 

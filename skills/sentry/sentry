@@ -1,0 +1,282 @@
+#!/bin/bash
+# Sentry API CLI
+
+CONFIG_FILE="$HOME/.claude/skills/sentry/.env"
+source "$CONFIG_FILE" 2>/dev/null
+
+if [[ -z "$SENTRY_TOKEN" ]]; then
+    echo "Error: Sentry not configured."
+    echo "Run: ~/.claude/skills/sentry/config.sh setup"
+    exit 1
+fi
+
+API_BASE="${SENTRY_BASE_URL:-https://sentry.io}/api/0"
+
+# Parse global flags
+ORG="$SENTRY_ORG"
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --org) ORG="$2"; shift 2 ;;
+        *) break ;;
+    esac
+done
+
+# HTTP helpers
+api_get() {
+    local endpoint="$1"
+    curl -s -X GET "${API_BASE}${endpoint}" \
+        -H "Authorization: Bearer $SENTRY_TOKEN" \
+        -H "Accept: application/json"
+}
+
+api_put() {
+    local endpoint="$1"
+    local data="$2"
+    curl -s -X PUT "${API_BASE}${endpoint}" \
+        -H "Authorization: Bearer $SENTRY_TOKEN" \
+        -H "Accept: application/json" \
+        -H "Content-Type: application/json" \
+        -d "$data"
+}
+
+api_delete() {
+    local endpoint="$1"
+    curl -s -X DELETE "${API_BASE}${endpoint}" \
+        -H "Authorization: Bearer $SENTRY_TOKEN" \
+        -H "Accept: application/json"
+}
+
+url_encode() {
+    python3 -c "import urllib.parse; print(urllib.parse.quote('$1'))"
+}
+
+# === PROJECTS ===
+
+cmd_projects() {
+    api_get "/projects/"
+}
+
+cmd_project() {
+    local project="$1"
+    [[ -z "$ORG" ]] && echo "Error: --org required" && exit 1
+    [[ -z "$project" ]] && echo "Error: project slug required" && exit 1
+    api_get "/projects/${ORG}/${project}/"
+}
+
+# === ISSUES ===
+
+cmd_issues() {
+    [[ -z "$ORG" ]] && echo "Error: --org required" && exit 1
+
+    local params=()
+    local project=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --project) project="$2"; shift 2 ;;
+            --query) params+=("query=$(url_encode "$2")"); shift 2 ;;
+            --status) params+=("query=$(url_encode "is:$2")"); shift 2 ;;
+            --env) params+=("environment=$2"); shift 2 ;;
+            --limit) params+=("limit=$2"); shift 2 ;;
+            --sort) params+=("sort=$2"); shift 2 ;;
+            --cursor) params+=("cursor=$2"); shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local query=""
+    for param in "${params[@]}"; do
+        [[ -n "$query" ]] && query="${query}&"
+        query="${query}${param}"
+    done
+    [[ -n "$query" ]] && query="?$query"
+
+    if [[ -n "$project" ]]; then
+        api_get "/projects/${ORG}/${project}/issues/${query}"
+    else
+        api_get "/organizations/${ORG}/issues/${query}"
+    fi
+}
+
+cmd_issue() {
+    local issue_id="$1"
+    [[ -z "$ORG" ]] && echo "Error: --org required" && exit 1
+    [[ -z "$issue_id" ]] && echo "Error: issue ID required" && exit 1
+    api_get "/organizations/${ORG}/issues/${issue_id}/"
+}
+
+cmd_events() {
+    local issue_id="$1"
+    shift
+    [[ -z "$ORG" ]] && echo "Error: --org required" && exit 1
+    [[ -z "$issue_id" ]] && echo "Error: issue ID required" && exit 1
+
+    local params=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --full) params+=("full=true"); shift ;;
+            --limit) params+=("limit=$2"); shift 2 ;;
+            --cursor) params+=("cursor=$2"); shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local query=""
+    for param in "${params[@]}"; do
+        [[ -n "$query" ]] && query="${query}&"
+        query="${query}${param}"
+    done
+    [[ -n "$query" ]] && query="?$query"
+
+    api_get "/organizations/${ORG}/issues/${issue_id}/events/${query}"
+}
+
+cmd_event() {
+    local project="$1"
+    local event_id="$2"
+    [[ -z "$ORG" ]] && echo "Error: --org required" && exit 1
+    [[ -z "$project" ]] && echo "Error: project slug required" && exit 1
+    [[ -z "$event_id" ]] && echo "Error: event ID required" && exit 1
+    api_get "/projects/${ORG}/${project}/events/${event_id}/"
+}
+
+# === ISSUE ACTIONS ===
+
+cmd_resolve() {
+    local issue_id="$1"
+    [[ -z "$ORG" ]] && echo "Error: --org required" && exit 1
+    [[ -z "$issue_id" ]] && echo "Error: issue ID required" && exit 1
+    api_put "/organizations/${ORG}/issues/${issue_id}/" '{"status": "resolved"}'
+}
+
+cmd_unresolve() {
+    local issue_id="$1"
+    [[ -z "$ORG" ]] && echo "Error: --org required" && exit 1
+    [[ -z "$issue_id" ]] && echo "Error: issue ID required" && exit 1
+    api_put "/organizations/${ORG}/issues/${issue_id}/" '{"status": "unresolved"}'
+}
+
+cmd_ignore() {
+    local issue_id="$1"
+    local duration="${2:-}"
+    [[ -z "$ORG" ]] && echo "Error: --org required" && exit 1
+    [[ -z "$issue_id" ]] && echo "Error: issue ID required" && exit 1
+
+    if [[ -n "$duration" ]]; then
+        api_put "/organizations/${ORG}/issues/${issue_id}/" "{\"status\": \"ignored\", \"statusDetails\": {\"ignoreDuration\": $duration}}"
+    else
+        api_put "/organizations/${ORG}/issues/${issue_id}/" '{"status": "ignored"}'
+    fi
+}
+
+cmd_assign() {
+    local issue_id="$1"
+    local assignee="$2"
+    [[ -z "$ORG" ]] && echo "Error: --org required" && exit 1
+    [[ -z "$issue_id" ]] && echo "Error: issue ID required" && exit 1
+    [[ -z "$assignee" ]] && echo "Error: assignee required (user ID or team:name)" && exit 1
+    api_put "/organizations/${ORG}/issues/${issue_id}/" "{\"assignedTo\": \"$assignee\"}"
+}
+
+# === STATS ===
+
+cmd_stats() {
+    [[ -z "$ORG" ]] && echo "Error: --org required" && exit 1
+
+    local stat="received"
+    local period="24h"
+    local project=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --stat) stat="$2"; shift 2 ;;
+            --period) period="$2"; shift 2 ;;
+            --project) project="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local query="stat=${stat}&statsPeriod=${period}"
+    [[ -n "$project" ]] && query="${query}&project=${project}"
+
+    api_get "/organizations/${ORG}/stats_v2/?${query}"
+}
+
+# === GENERIC ===
+
+cmd_get() {
+    local endpoint="$1"
+    [[ -z "$endpoint" ]] && echo "Error: endpoint required" && exit 1
+    [[ "$endpoint" != /* ]] && endpoint="/$endpoint"
+    api_get "$endpoint"
+}
+
+# === MAIN ===
+
+show_help() {
+    echo "Sentry API CLI"
+    echo ""
+    echo "GLOBAL FLAGS:"
+    echo "  --org <slug>    Organization slug (default: from config)"
+    echo ""
+    echo "PROJECTS:"
+    echo "  projects                    List all projects"
+    echo "  project <slug>              Get project details"
+    echo ""
+    echo "ISSUES:"
+    echo "  issues [flags]              List issues"
+    echo "    --project <slug>          Filter by project"
+    echo "    --query <search>          Search query (Sentry syntax)"
+    echo "    --status <status>         unresolved, resolved, ignored"
+    echo "    --env <name>              Filter by environment"
+    echo "    --sort <field>            date, freq, new, user"
+    echo "    --limit <n>               Max results (max 100)"
+    echo "  issue <id>                  Get issue details"
+    echo ""
+    echo "EVENTS:"
+    echo "  events <issue_id> [flags]   List events for an issue"
+    echo "    --full                    Include full stacktrace"
+    echo "    --limit <n>               Max results"
+    echo "  event <project> <event_id>  Get event details"
+    echo ""
+    echo "ACTIONS:"
+    echo "  resolve <issue_id>          Mark issue as resolved"
+    echo "  unresolve <issue_id>        Reopen issue"
+    echo "  ignore <issue_id> [mins]    Ignore issue (optionally for N minutes)"
+    echo "  assign <issue_id> <user>    Assign issue"
+    echo ""
+    echo "STATS:"
+    echo "  stats [flags]               Get organization stats"
+    echo "    --stat <type>             received, rejected, blacklisted"
+    echo "    --period <period>         24h, 7d, 30d"
+    echo "    --project <id>            Filter by project ID"
+    echo ""
+    echo "GENERIC:"
+    echo "  get <endpoint>              GET any endpoint"
+    echo ""
+    echo "SEARCH QUERY SYNTAX:"
+    echo "  is:unresolved               Unresolved issues"
+    echo "  is:resolved                 Resolved issues"
+    echo "  is:ignored                  Ignored issues"
+    echo "  is:assigned                 Assigned to someone"
+    echo "  assigned:me                 Assigned to me"
+    echo "  level:error                 Error level"
+    echo "  environment:production      By environment"
+    echo "  release:1.0.0               By release"
+    echo "  user.email:foo@bar.com      By user email"
+}
+
+case "$1" in
+    projects) cmd_projects ;;
+    project) cmd_project "$2" ;;
+    issues) shift; cmd_issues "$@" ;;
+    issue) cmd_issue "$2" ;;
+    events) shift; cmd_events "$@" ;;
+    event) cmd_event "$2" "$3" ;;
+    resolve) cmd_resolve "$2" ;;
+    unresolve) cmd_unresolve "$2" ;;
+    ignore) cmd_ignore "$2" "$3" ;;
+    assign) cmd_assign "$2" "$3" ;;
+    stats) shift; cmd_stats "$@" ;;
+    get) cmd_get "$2" ;;
+    *) show_help ;;
+esac
