@@ -1,6 +1,6 @@
 ---
 name: sytex
-description: Connect to Sytex platform API. Use when user mentions Sytex, app, claro, ufinet, dt, adc, alfred, atis, exsei, integrar, torresec, or app_eu instances. Handles tasks, projects, forms, materials, organizations.
+description: Connect to Sytex platform API. Use when user mentions Sytex, app, claro, ufinet, dt, adc, atis, exsei, integrar, torresec, or app_eu instances. Handles tasks, projects, forms, materials, organizations.
 allowed-tools:
   - Read
   - Bash(~/.claude/skills/sytex/*:*)
@@ -38,7 +38,6 @@ Example:
 | ufinet | https://ufinet.sytex.io | Dedicated (1 org) |
 | dt | https://dt.sytex.io | Dedicated (1 org) |
 | adc | https://adc.sytex.io | Dedicated (1 org) |
-| alfred | https://alfred.sytex.io | Dedicated (1 org) |
 | atis | https://atis.sytex.io | Dedicated (1 org) |
 | exsei | https://exsei.sytex.io | Dedicated (1 org) |
 | integrar | https://integrar.sytex.io | Dedicated (1 org) |

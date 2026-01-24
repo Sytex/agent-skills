@@ -442,7 +442,6 @@ cmd_find_org() {
         "ufinet:https://ufinet.sytex.io"
         "dt:https://dt.sytex.io"
         "adc:https://adc.sytex.io"
-        "alfred:https://alfred.sytex.io"
         "atis:https://atis.sytex.io"
         "exsei:https://exsei.sytex.io"
         "integrar:https://integrar.sytex.io"
