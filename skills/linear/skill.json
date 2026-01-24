@@ -11,8 +11,8 @@
       "type": "password",
       "required": true,
       "env_var": "LINEAR_API_KEY",
-      "help": "1. Open Linear and click your profile (bottom left)\n2. Go to Settings > Security & access\n3. Scroll to 'Personal API keys'\n4. Click 'Create key' and copy it",
-      "help_url": "https://linear.app/settings/api"
+      "help": "1. Click the link below\n2. Enter a label (e.g. 'Claude')\n3. Click 'Create' and copy the key",
+      "help_url": "https://linear.app/sytex/settings/account/security/api-keys/new"
     }
   ],
   "test_command": "me",
