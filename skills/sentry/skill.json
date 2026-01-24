@@ -1,0 +1,37 @@
+{
+  "name": "sentry",
+  "title": "Sentry",
+  "description": "Monitor errors and issues from Sentry",
+  "version": "1.0.0",
+  "setup_instructions": "To connect Sentry, you need an Auth Token from your Sentry account.",
+  "fields": [
+    {
+      "name": "token",
+      "label": "Auth Token",
+      "type": "password",
+      "required": true,
+      "env_var": "SENTRY_TOKEN",
+      "help": "1. Go to the link below\n2. Click 'Create New Token'\n3. Give it a name (e.g. 'Claude')\n4. Select scopes: project:read, event:read\n5. Click 'Create Token' and copy it",
+      "help_url": "https://sentry.io/settings/auth-tokens/"
+    },
+    {
+      "name": "org",
+      "label": "Organization Slug",
+      "type": "text",
+      "required": true,
+      "env_var": "SENTRY_ORG",
+      "help": "The short name of your organization. You can find it in any Sentry URL: sentry.io/organizations/YOUR-ORG-SLUG/..."
+    },
+    {
+      "name": "base_url",
+      "label": "Sentry URL",
+      "type": "text",
+      "default": "https://sentry.io",
+      "env_var": "SENTRY_BASE_URL",
+      "help": "Leave as https://sentry.io unless your company has its own Sentry server"
+    }
+  ],
+  "test_command": "projects",
+  "install_path": "~/.claude/skills/sentry",
+  "files": ["sentry", "SKILL.md", "README.md"]
+}

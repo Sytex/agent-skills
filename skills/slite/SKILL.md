@@ -6,34 +6,9 @@ allowed-tools: Read, Bash(~/.claude/skills/slite/*:*)
 
 # Slite Integration
 
-## Purpose
+Search, read, create, update, and manage notes in Slite.
 
-Connect to Slite's API to search, read, create, update, and manage notes in the user's knowledge base.
-
-## Setup Required
-
-Before first use, the user must configure their API key. Guide them with these steps:
-
-### How to get your Slite API key
-
-1. Open your Slite workspace in the browser
-2. Click your avatar/profile picture (bottom left corner)
-3. Select **Settings**
-4. In the sidebar, look for **API** (may be under "Integrations" or at the bottom)
-5. Click **Generate new token** or **Create API key**
-6. Copy the generated key (only shown once)
-
-### Configure the API key
-
-Once the user has the key, run:
-
-```bash
-~/.claude/skills/slite/config.sh setup
-```
-
-The user should paste their API key when prompted.
-
-## Available Commands
+## Commands
 
 All commands use the script: `~/.claude/skills/slite/slite`
 

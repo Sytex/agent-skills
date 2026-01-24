@@ -10,10 +10,6 @@ allowed-tools:
 
 Manage tasks, projects, sites, materials, forms, and automations via the Sytex API.
 
-## Setup
-
-Run `~/.claude/skills/sytex/config.sh setup` and provide your token.
-
 ## Required Flags
 
 Every command (except `find-org`) requires:

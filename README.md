@@ -14,41 +14,54 @@ Skills for AI coding agents by the Sytex team.
 
 ## Installation
 
-### Option 1: Tell your agent
+### Using the Installer
+
+**Terminal (interactive):**
+```bash
+./installer/install.sh
+```
+
+**Web UI:**
+```bash
+./installer/install.sh --web
+```
+
+**Direct install:**
+```bash
+./installer/install.sh <skill-name>
+./installer/install.sh sentry install
+./installer/install.sh sentry test
+```
+
+### Option 2: Tell your agent
 
 > "Install the Slite skill from this repo"
-
-### Option 2: Manual
-
-```bash
-cd skills/<skill-name>
-./install.sh
-```
 
 ## Structure
 
 ```
 agent-skills/
 ├── README.md
+├── installer/
+│   ├── install.sh      # Entry point
+│   ├── cli.sh          # CLI logic (bash + gum)
+│   ├── web.py          # Web server (Python stdlib)
+│   ├── templates/
+│   │   └── index.html  # Web UI
+│   └── bin/            # gum binary (auto-downloaded)
 └── skills/
-    ├── slite/
-    │   ├── install.sh
-    │   ├── README.md
-    │   └── SKILL.md
-    ├── gmail/
-    │   ├── install.sh
-    │   ├── README.md
-    │   └── SKILL.md
-    └── sytex/
-        ├── install.sh
-        ├── README.md
-        └── SKILL.md
+    ├── sentry/
+    │   ├── skill.json  # Metadata + form fields
+    │   ├── SKILL.md
+    │   └── ...
+    └── linear/
+        └── ...
 ```
 
 ## Adding a new skill
 
 1. Create folder at `skills/<name>/`
-2. Include `install.sh` for installation
+2. Include `skill.json` with metadata and form fields
 3. Include `README.md` with documentation
 4. Include `SKILL.md` for the agent
 

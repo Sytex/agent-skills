@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Skills Installer</title>
+    <style>
+        :root {
+            --bg: #0a0a0a;
+            --bg-card: #141414;
+            --bg-hover: #1a1a1a;
+            --border: #2a2a2a;
+            --text: #e5e5e5;
+            --text-dim: #888;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --green: #22c55e;
+            --yellow: #eab308;
+            --red: #ef4444;
+            --cyan: #06b6d4;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        header h1 {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        header p {
+            color: var(--text-dim);
+        }
+
+        .skills-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .skill-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .skill-card:hover {
+            background: var(--bg-hover);
+            border-color: var(--accent);
+        }
+
+        .skill-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.75rem;
+        }
+
+        .skill-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .skill-badge {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-weight: 500;
+        }
+
+        .badge-not-installed {
+            background: rgba(100, 100, 100, 0.2);
+            color: #888;
+        }
+
+        .badge-installed {
+            background: rgba(249, 115, 22, 0.15);
+            color: #f97316;
+        }
+
+        .badge-configured {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--green);
+        }
+
+        .skill-description {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+
+        .skill-meta {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            padding: 2rem;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            width: 100%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow: auto;
+        }
+
+        .modal-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0.5rem;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            color: var(--text);
+        }
+
+        .modal-body {
+            padding: 1.5rem;
+        }
+
+        .modal-footer {
+            padding: 1.5rem;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+        }
+
+        /* Alerts */
+        .alert {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            font-size: 0.9rem;
+        }
+
+        .alert-info {
+            background: rgba(59, 130, 246, 0.15);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: var(--accent);
+        }
+
+        .alert-success {
+            background: rgba(34, 197, 94, 0.15);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: var(--green);
+        }
+
+        .alert-error {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: var(--red);
+        }
+
+        /* Form */
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+
+        .form-label .required {
+            color: var(--red);
+            margin-left: 0.25rem;
+        }
+
+        .form-help {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            margin-bottom: 0.5rem;
+            white-space: pre-line;
+        }
+
+        .form-help a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .form-help a:hover {
+            text-decoration: underline;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 1rem;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .form-input::placeholder {
+            color: var(--text-dim);
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .btn-secondary {
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-hover);
+        }
+
+        .btn-danger {
+            background: var(--red);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Actions */
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .actions .btn {
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
+        }
+
+        /* Info list */
+        .info-list {
+            margin-bottom: 1.5rem;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.9rem;
+        }
+
+        .info-item:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            color: var(--text-dim);
+        }
+
+        .info-value {
+            font-weight: 500;
+        }
+
+        /* Test output */
+        .test-output {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: monospace;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 300px;
+            overflow: auto;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 500;
+            animation: slideIn 0.3s ease;
+            z-index: 200;
+        }
+
+        .toast-success {
+            background: var(--green);
+            color: white;
+        }
+
+        .toast-error {
+            background: var(--red);
+            color: white;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        /* Loading */
+        .loading {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+            border: 2px solid transparent;
+            border-top-color: currentColor;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Agent Skills Installer</h1>
+            <p>Install and configure skills for AI coding agents</p>
+        </header>
+
+        <div class="skills-grid" id="skills-grid">
+            <!-- Skills loaded dynamically -->
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal" id="modal">
+            <div class="modal-header">
+                <h2 id="modal-title">Skill</h2>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- Content loaded dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = '/api';
+        let skills = [];
+        let currentSkill = null;
+
+        // Load skills
+        async function loadSkills() {
+            const response = await fetch(`${API}/skills`);
+            skills = await response.json();
+            renderSkills();
+        }
+
+        // Render skills grid
+        function renderSkills() {
+            const grid = document.getElementById('skills-grid');
+            grid.innerHTML = skills.map(skill => `
+                <div class="skill-card" onclick="openSkill('${skill.id}')">
+                    <div class="skill-header">
+                        <span class="skill-title">${skill.title}</span>
+                        <span class="skill-badge badge-${skill.status.replace('_', '-')}">${formatStatus(skill.status)}</span>
+                    </div>
+                    <div class="skill-description">${skill.description}</div>
+                    <div class="skill-meta">v${skill.version}</div>
+                </div>
+            `).join('');
+        }
+
+        // Format status
+        function formatStatus(status) {
+            switch (status) {
+                case 'not_installed': return 'Not Installed';
+                case 'installed': return 'Needs Config';
+                case 'configured': return 'Ready';
+                default: return status;
+            }
+        }
+
+        // Open skill modal
+        async function openSkill(skillId) {
+            const response = await fetch(`${API}/skills/${skillId}`);
+            currentSkill = await response.json();
+            renderModal();
+            document.getElementById('modal-overlay').classList.add('active');
+        }
+
+        // Close modal
+        function closeModal() {
+            document.getElementById('modal-overlay').classList.remove('active');
+            currentSkill = null;
+        }
+
+        // Close on overlay click
+        document.getElementById('modal-overlay').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) closeModal();
+        });
+
+        // Close on Escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+
+        // Render modal content
+        function renderModal() {
+            const skill = currentSkill;
+            document.getElementById('modal-title').innerHTML = `${skill.title} <span class="skill-badge badge-${skill.status.replace('_', '-')}" style="font-size:0.6em;vertical-align:middle;margin-left:0.5rem">${formatStatus(skill.status)}</span>`;
+
+            let html = '';
+
+            // Not installed - show install button prominently
+            if (skill.status === 'not_installed') {
+                html += `
+                    <p style="color:var(--text-dim);margin-bottom:1.5rem">${skill.description}</p>
+                    <button class="btn btn-primary" onclick="installSkill()" style="width:100%;padding:1rem;font-size:1.1rem">Install ${skill.title}</button>
+                `;
+                document.getElementById('modal-body').innerHTML = html;
+                return;
+            }
+
+            // Installed - show configuration form
+            const actionText = skill.status === 'installed' ? 'Complete the form below to connect' : 'Update your credentials if needed';
+            html += `<p style="color:var(--text-dim);margin-bottom:1.5rem">${actionText}</p>`;
+
+            html += '<form id="config-form">';
+
+            for (const field of skill.fields || []) {
+                const value = skill.config?.[field.name] || field.default || '';
+                const isPassword = field.type === 'password';
+
+                html += `<div class="form-group">`;
+
+                // Label with help toggle
+                html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">`;
+                html += `<label class="form-label" style="margin:0">${field.label} ${field.required ? '<span class="required">*</span>' : ''}</label>`;
+                if (field.help || field.help_url) {
+                    html += `<button type="button" onclick="this.parentElement.nextElementSibling.open=!this.parentElement.nextElementSibling.open" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:0.85rem">How do I get this?</button>`;
+                }
+                html += `</div>`;
+
+                // Help text (collapsible)
+                if (field.help || field.help_url) {
+                    html += `<details class="field-help">`;
+                    html += `<summary style="display:none"></summary>`;
+                    html += `<div class="form-help" style="margin-bottom:0.75rem;padding:0.75rem;background:var(--bg);border-radius:6px">`;
+                    if (field.help) html += field.help;
+                    if (field.help_url) html += `<br><a href="${field.help_url}" target="_blank" style="display:inline-block;margin-top:0.5rem">Open ${skill.title} settings ↗</a>`;
+                    html += `</div></details>`;
+                }
+
+                // Input
+                html += `<input
+                    type="${isPassword ? 'password' : 'text'}"
+                    class="form-input"
+                    name="${field.name}"
+                    value="${isPassword && value ? '' : escapeHtml(value)}"
+                    placeholder="${isPassword && value ? '••••••••••••••••' : ''}"
+                    ${field.required ? 'required' : ''}
+                >`;
+
+                html += `</div>`;
+            }
+            html += '</form>';
+
+            // Test output area
+            html += '<div id="test-output-container" style="display:none;margin-top:1rem;"><div class="test-output" id="test-output"></div></div>';
+
+            // Actions - dead simple
+            html += '<div class="actions" style="margin-top:1.5rem">';
+
+            if (skill.status === 'installed') {
+                html += '<button class="btn btn-primary" onclick="saveConfig()">Connect</button>';
+            } else {
+                html += '<button class="btn btn-primary" onclick="saveConfig()">Save</button>';
+                html += '<button class="btn btn-secondary" onclick="testSkill()">Test</button>';
+            }
+
+            html += '</div>';
+
+            // Just uninstall at the bottom
+            html += '<div style="margin-top:2rem;padding-top:1rem;border-top:1px solid var(--border)">';
+            html += '<button class="btn btn-danger" onclick="uninstallSkill()" style="width:100%">Uninstall</button>';
+            html += '</div>';
+
+            document.getElementById('modal-body').innerHTML = html;
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Show toast
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // API calls
+        async function installSkill() {
+            await fetch(`${API}/skills/${currentSkill.id}/install`, { method: 'POST' });
+            showToast('Skill installed');
+            await refreshSkill();
+        }
+
+        async function saveConfig() {
+            const form = document.getElementById('config-form');
+            const formData = new FormData(form);
+            const config = {};
+
+            for (const field of currentSkill.fields || []) {
+                const value = formData.get(field.name);
+                // Keep existing password if not changed
+                if (field.type === 'password' && !value && currentSkill.config?.[field.name]) {
+                    config[field.name] = currentSkill.config[field.name];
+                } else {
+                    config[field.name] = value;
+                }
+            }
+
+            await fetch(`${API}/skills/${currentSkill.id}/configure`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config)
+            });
+
+            showToast('Configuration saved');
+            await refreshSkill();
+        }
+
+        async function updateSkill() {
+            await fetch(`${API}/skills/${currentSkill.id}/install`, { method: 'POST' });
+            showToast('Files updated');
+            await refreshSkill();
+        }
+
+        async function testSkill() {
+            const container = document.getElementById('test-output-container');
+            const output = document.getElementById('test-output');
+
+            container.style.display = 'block';
+            output.textContent = 'Running test...';
+
+            const response = await fetch(`${API}/skills/${currentSkill.id}/test`, { method: 'POST' });
+            const result = await response.json();
+
+            output.textContent = result.output;
+            showToast(result.success ? 'Test passed' : 'Test failed', result.success ? 'success' : 'error');
+        }
+
+        async function clearAuth() {
+            if (!confirm('Remove credentials for this skill?')) return;
+
+            await fetch(`${API}/skills/${currentSkill.id}/clear-auth`, { method: 'POST' });
+            showToast('Credentials removed');
+            await refreshSkill();
+        }
+
+        async function uninstallSkill() {
+            if (!confirm('Uninstall this skill? This will remove all files and credentials.')) return;
+
+            await fetch(`${API}/skills/${currentSkill.id}/uninstall`, { method: 'POST' });
+            showToast('Skill uninstalled');
+            closeModal();
+            await loadSkills();
+        }
+
+        async function refreshSkill() {
+            const response = await fetch(`${API}/skills/${currentSkill.id}`);
+            currentSkill = await response.json();
+            renderModal();
+            await loadSkills();
+        }
+
+        // Init
+        loadSkills();
+    </script>
+</body>
+</html>

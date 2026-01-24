@@ -5,8 +5,7 @@ CONFIG_FILE="$HOME/.claude/skills/linear/.env"
 source "$CONFIG_FILE" 2>/dev/null
 
 if [[ -z "$LINEAR_API_KEY" ]]; then
-    echo "Error: Linear not configured."
-    echo "Run: ~/.claude/skills/linear/config.sh setup"
+    echo "Error: Not configured. Create $CONFIG_FILE with LINEAR_API_KEY"
     exit 1
 fi
 

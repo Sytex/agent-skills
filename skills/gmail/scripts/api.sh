@@ -4,7 +4,7 @@
 CONFIG_DIR="$HOME/.claude/skills/gmail"
 CONFIG_FILE="$CONFIG_DIR/.env"
 
-[[ ! -f "$CONFIG_FILE" ]] && echo "Error: Not configured. Run: ~/.claude/skills/gmail/config.sh setup" && exit 1
+[[ ! -f "$CONFIG_FILE" ]] && echo "Error: Not configured. Create $CONFIG_FILE with GMAIL_EMAIL and GMAIL_APP_PASSWORD" && exit 1
 
 source "$CONFIG_FILE"
 

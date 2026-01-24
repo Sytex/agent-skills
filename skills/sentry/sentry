@@ -5,8 +5,7 @@ CONFIG_FILE="$HOME/.claude/skills/sentry/.env"
 source "$CONFIG_FILE" 2>/dev/null
 
 if [[ -z "$SENTRY_TOKEN" ]]; then
-    echo "Error: Sentry not configured."
-    echo "Run: ~/.claude/skills/sentry/config.sh setup"
+    echo "Error: Not configured. Create $CONFIG_FILE with SENTRY_TOKEN, SENTRY_ORG, SENTRY_BASE_URL"
     exit 1
 fi
 

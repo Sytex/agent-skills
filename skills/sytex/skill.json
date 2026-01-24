@@ -1,0 +1,20 @@
+{
+  "name": "sytex",
+  "title": "Sytex",
+  "description": "Interact with Sytex production API",
+  "version": "1.0.0",
+  "setup_instructions": "To connect Sytex, you need an API token. Ask your Sytex administrator for one.",
+  "fields": [
+    {
+      "name": "token",
+      "label": "API Token",
+      "type": "password",
+      "required": true,
+      "env_var": "SYTEX_TOKEN",
+      "help": "The API token provided by your Sytex administrator. If you don't have one, ask them to generate it from the admin panel."
+    }
+  ],
+  "test_command": "find-org test",
+  "install_path": "~/.claude/skills/sytex",
+  "files": ["sytex", "SKILL.md", "FORM_TEMPLATES.md", "README.md"]
+}

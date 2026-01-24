@@ -1,0 +1,21 @@
+{
+  "name": "linear",
+  "title": "Linear",
+  "description": "Manage issues and projects in Linear",
+  "version": "1.0.0",
+  "setup_instructions": "To connect Linear, you need a Personal API Key from your Linear account.",
+  "fields": [
+    {
+      "name": "api_key",
+      "label": "API Key",
+      "type": "password",
+      "required": true,
+      "env_var": "LINEAR_API_KEY",
+      "help": "1. Open Linear and click your profile (bottom left)\n2. Go to Settings > Security & access\n3. Scroll to 'Personal API keys'\n4. Click 'Create key' and copy it",
+      "help_url": "https://linear.app/settings/api"
+    }
+  ],
+  "test_command": "me",
+  "install_path": "~/.claude/skills/linear",
+  "files": ["linear", "SKILL.md", "README.md"]
+}

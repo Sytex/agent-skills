@@ -10,10 +10,6 @@ allowed-tools:
 
 Manage issues, projects, and cycles in Linear.
 
-## Setup
-
-Run `~/.claude/skills/linear/config.sh setup` and provide your API key from Settings > Security & access > Personal API keys.
-
 ## Commands
 
 All commands: `~/.claude/skills/linear/linear <command>`

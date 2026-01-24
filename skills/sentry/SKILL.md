@@ -10,13 +10,6 @@ allowed-tools:
 
 Monitor and manage errors, issues, and events from Sentry.
 
-## Setup
-
-Run `~/.claude/skills/sentry/config.sh setup` and provide:
-- **Token**: From Settings > Auth Tokens (needs `project:read`, `event:read`, `event:write`)
-- **Base URL**: `https://sentry.io` (or self-hosted URL)
-- **Organization**: Your org slug
-
 ## Commands
 
 All commands: `~/.claude/skills/sentry/sentry [--org <slug>] <command>`

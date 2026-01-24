@@ -7,8 +7,7 @@ source "$CONFIG_FILE" 2>/dev/null
 API_BASE="https://api.slite.com/v1"
 
 if [[ -z "$SLITE_API_KEY" ]]; then
-    echo "Error: SLITE_API_KEY not configured."
-    echo "Run: ~/.claude/skills/slite/config.sh setup"
+    echo "Error: Not configured. Create $CONFIG_FILE with SLITE_API_KEY"
     exit 1
 fi
 

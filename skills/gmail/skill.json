@@ -1,0 +1,29 @@
+{
+  "name": "gmail",
+  "title": "Gmail",
+  "description": "Read Gmail messages via IMAP",
+  "version": "1.0.0",
+  "setup_instructions": "To connect Gmail, you need an App Password (not your regular password). This requires 2-Step Verification enabled on your Google account.",
+  "fields": [
+    {
+      "name": "email",
+      "label": "Gmail Address",
+      "type": "text",
+      "required": true,
+      "env_var": "GMAIL_EMAIL",
+      "help": "Your full Gmail address (e.g. yourname@gmail.com)"
+    },
+    {
+      "name": "app_password",
+      "label": "App Password",
+      "type": "password",
+      "required": true,
+      "env_var": "GMAIL_APP_PASSWORD",
+      "help": "1. Go to the link below\n2. Click 'Select app' > Mail\n3. Click 'Select device' > Other > type 'Claude'\n4. Click 'Generate'\n5. Copy the 16-character password (no spaces)",
+      "help_url": "https://myaccount.google.com/apppasswords"
+    }
+  ],
+  "test_command": "me",
+  "install_path": "~/.claude/skills/gmail",
+  "files": ["scripts/api.sh:gmail", "SKILL.md", "README.md"]
+}

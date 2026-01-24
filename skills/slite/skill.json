@@ -1,0 +1,21 @@
+{
+  "name": "slite",
+  "title": "Slite",
+  "description": "Connect with Slite knowledge base",
+  "version": "1.0.0",
+  "setup_instructions": "To connect Slite, you need an API key from your Slite workspace.",
+  "fields": [
+    {
+      "name": "api_key",
+      "label": "API Key",
+      "type": "password",
+      "required": true,
+      "env_var": "SLITE_API_KEY",
+      "help": "1. Open Slite and click your avatar (bottom left)\n2. Go to Settings > Integrations\n3. Find 'API access' and click 'Generate new token'\n4. Copy the token (you'll only see it once!)",
+      "help_url": "https://slite.com"
+    }
+  ],
+  "test_command": "search test",
+  "install_path": "~/.claude/skills/slite",
+  "files": ["slite", "SKILL.md", "README.md"]
+}
