@@ -62,10 +62,17 @@ download_gum() {
     echo "Downloading gum..."
 
     if command -v curl &> /dev/null; then
-        curl -sL "$url" | tar xz -C "$BIN_DIR" --strip-components=1 "*/gum"
+        curl -sL "$url" | tar xz -C "$BIN_DIR" --strip-components=1 "*/gum" 2>/dev/null
     elif command -v wget &> /dev/null; then
-        wget -qO- "$url" | tar xz -C "$BIN_DIR" --strip-components=1 "*/gum"
+        wget -qO- "$url" | tar xz -C "$BIN_DIR" --strip-components=1 "*/gum" 2>/dev/null
     else
+        echo "Error: curl or wget required"
+        return 1
+    fi
+
+    # Verify download succeeded
+    if [[ ! -f "$BIN_DIR/gum" ]]; then
+        echo "Error: Download failed"
         return 1
     fi
 
@@ -89,9 +96,9 @@ prompt_gum_install() {
     return 1
 }
 
-# Initialize gum
+# Initialize gum (optional, fallback to bash if not available)
 if ! init_gum; then
-    prompt_gum_install || true
+    prompt_gum_install || GUM=""
 fi
 
 # ============================================================================
