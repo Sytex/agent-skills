@@ -155,13 +155,32 @@ All commands use: `~/.claude/skills/sytex/sytex --base-url <URL> --org <ID> <com
 |---------|-------------|
 | `automation <uuid> [json]` | Execute automation |
 
-### Workstructures (Workflows)
+### Task Templates
+
+**IMPORTANT: There are TWO types of task templates in Sytex:**
+
+| Type | Endpoint | Use Case |
+|------|----------|----------|
+| **TaskTemplate** | `/api/tasktemplate/` | Simple reusable templates for individual tasks |
+| **WorkStructureTask** | `/api/workstructuretask/` | Task templates within a workflow (hierarchy, dependencies) |
+
+**When the user asks for a "plantilla" or "template":**
+1. Ask which type they mean, OR
+2. Search both endpoints if they provide an ID
+
+#### TaskTemplate (Simple Templates)
+| Command | Description |
+|---------|-------------|
+| `tasktemplates [flags]` | List simple task templates |
+| `tasktemplate <id>` | Get task template details |
+
+#### Workstructures (Workflows)
 | Command | Description |
 |---------|-------------|
 | `workstructures [flags]` | List workstructures |
 | `workstructure <id>` | Get workstructure details |
-| `workstructure-tasks [flags]` | List workstructure task templates |
-| `workstructure-task <id>` | Get workstructure task template details |
+| `workstructure-tasks [flags]` | List workflow task templates |
+| `workstructure-task <id>` | Get workflow task template details |
 
 **Note**: In the API, "workstructure" = "workflow" in the UI. A workstructure and its associated project share the same code (e.g., `ARG-004927207`).
 
@@ -173,7 +192,8 @@ All commands use: `~/.claude/skills/sytex/sytex --base-url <URL> --org <ID> <com
 **Available models**: `workstructure`, `task`, `project`, `site`, `client`, `staff`, `form`, `materialoperation`
 
 **Important distinctions**:
-- `workstructuretask`: Task *templates* defined in a workflow structure
+- `tasktemplate`: Simple reusable task templates (endpoint: `/api/tasktemplate/`)
+- `workstructuretask`: Task templates within a workflow structure (endpoint: `/api/workstructuretask/`)
 - `task`: Actual task *instances* created from templates (these have custom field values)
 
 To get custom fields of tasks in a workflow:
