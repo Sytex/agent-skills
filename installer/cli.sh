@@ -62,9 +62,9 @@ download_gum() {
     echo "Downloading gum..."
 
     if command -v curl &> /dev/null; then
-        curl -sL "$url" | tar xz -C "$BIN_DIR" gum
+        curl -sL "$url" | tar xz -C "$BIN_DIR" --strip-components=1 "*/gum"
     elif command -v wget &> /dev/null; then
-        wget -qO- "$url" | tar xz -C "$BIN_DIR" gum
+        wget -qO- "$url" | tar xz -C "$BIN_DIR" --strip-components=1 "*/gum"
     else
         return 1
     fi
