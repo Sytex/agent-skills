@@ -9,7 +9,7 @@ echo "Installing Sytex CLI..."
 mkdir -p "$INSTALL_DIR"
 
 cp "$SCRIPT_DIR/scripts/config.sh" "$INSTALL_DIR/"
-cp "$SCRIPT_DIR/scripts/api.sh" "$INSTALL_DIR/sytex"
+cp "$SCRIPT_DIR/sytex" "$INSTALL_DIR/"
 cp "$SCRIPT_DIR/SKILL.md" "$INSTALL_DIR/"
 cp "$SCRIPT_DIR/FORM_TEMPLATES.md" "$INSTALL_DIR/"
 
