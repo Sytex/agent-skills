@@ -152,21 +152,21 @@ choose() {
     if [[ -n "$GUM" ]]; then
         "$GUM" choose --header "$prompt" "${options[@]}"
     else
-        echo -e "${BOLD}$prompt${NC}"
-        echo ""
+        echo -e "${BOLD}$prompt${NC}" >&2
+        echo "" >&2
         local i=1
         for opt in "${options[@]}"; do
-            echo "  $i) $opt"
+            echo "  $i) $opt" >&2
             ((i++))
         done
-        echo ""
+        echo "" >&2
         while true; do
             read -p "Select [1-${#options[@]}]: " choice
             if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#options[@]} )); then
                 echo "${options[$((choice-1))]}"
                 return 0
             fi
-            echo "Invalid choice"
+            echo "Invalid choice" >&2
         done
     fi
 }
