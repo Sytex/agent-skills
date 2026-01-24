@@ -61,14 +61,22 @@ download_gum() {
     mkdir -p "$BIN_DIR"
     echo "Downloading gum..."
 
+    local tmpfile="/tmp/gum_$$.tar.gz"
+
     if command -v curl &> /dev/null; then
-        curl -sL "$url" | tar xz -C "$BIN_DIR" --strip-components=1 "*/gum" 2>/dev/null
+        curl -sL "$url" -o "$tmpfile"
     elif command -v wget &> /dev/null; then
-        wget -qO- "$url" | tar xz -C "$BIN_DIR" --strip-components=1 "*/gum" 2>/dev/null
+        wget -q "$url" -O "$tmpfile"
     else
         echo "Error: curl or wget required"
         return 1
     fi
+
+    # Extract (try GNU tar first, then BSD tar)
+    tar -xzf "$tmpfile" -C "$BIN_DIR" --wildcards --strip-components=1 "*/gum" 2>/dev/null || \
+    tar -xzf "$tmpfile" -C "$BIN_DIR" --strip-components=1 "*/gum" 2>/dev/null
+
+    rm -f "$tmpfile"
 
     # Verify download succeeded
     if [[ ! -f "$BIN_DIR/gum" ]]; then
