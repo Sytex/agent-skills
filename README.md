@@ -10,6 +10,7 @@ Skills for AI coding agents by the Sytex team.
 | [gmail](./skills/gmail)   | Read Gmail messages via IMAP       |
 | [sytex](./skills/sytex)   | Interact with Sytex production API |
 | [sentry](./skills/sentry) | Monitor errors and issues          |
+| [linear](./skills/linear) | Manage issues and projects         |
 
 ## Installation
 
