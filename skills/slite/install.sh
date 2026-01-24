@@ -9,7 +9,7 @@ echo "Installing Slite CLI..."
 mkdir -p "$INSTALL_DIR"
 
 cp "$SCRIPT_DIR/scripts/config.sh" "$INSTALL_DIR/"
-cp "$SCRIPT_DIR/scripts/api.sh" "$INSTALL_DIR/slite"
+cp "$SCRIPT_DIR/slite" "$INSTALL_DIR/"
 cp "$SCRIPT_DIR/SKILL.md" "$INSTALL_DIR/"
 
 chmod +x "$INSTALL_DIR/"*
