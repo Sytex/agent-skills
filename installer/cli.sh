@@ -158,9 +158,12 @@ choose() {
     local options=("$@")
 
     if [[ -n "$GUM" ]]; then
-        "$GUM" choose --header "$prompt" "${options[@]}"
+        local result
+        result=$("$GUM" choose --header "$prompt" "${options[@]}") || { echo "Back"; return 0; }
+        echo "$result"
     else
         echo -e "${BOLD}$prompt${NC}" >&2
+        echo -e "${DIM}(q to go back)${NC}" >&2
         echo "" >&2
         local i=1
         for opt in "${options[@]}"; do
@@ -170,6 +173,7 @@ choose() {
         echo "" >&2
         while true; do
             read -p "Select [1-${#options[@]}]: " choice
+            [[ "$choice" == "q" || "$choice" == "Q" || -z "$choice" ]] && { echo "Back"; return 0; }
             if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#options[@]} )); then
                 echo "${options[$((choice-1))]}"
                 return 0
