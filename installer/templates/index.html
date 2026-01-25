@@ -505,11 +505,26 @@
 
             let html = '';
 
+            const hasFields = (skill.fields || []).length > 0;
+
             // Not installed - show install button prominently
             if (skill.status === 'not_installed') {
                 html += `
                     <p style="color:var(--text-dim);margin-bottom:1.5rem">${skill.description}</p>
                     <button class="btn btn-primary" onclick="installSkill()" style="width:100%;padding:1rem;font-size:1.1rem">Install ${skill.title}</button>
+                `;
+                document.getElementById('modal-body').innerHTML = html;
+                return;
+            }
+
+            // Configured skill without fields - just show ready state
+            if (skill.status === 'configured' && !hasFields) {
+                html += `
+                    <p style="color:var(--text-dim);margin-bottom:1.5rem">${skill.description}</p>
+                    <div class="alert alert-success">Ready to use. No configuration needed.</div>
+                    <div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)">
+                        <button class="btn btn-danger" onclick="uninstallSkill()" style="width:100%">Uninstall</button>
+                    </div>
                 `;
                 document.getElementById('modal-body').innerHTML = html;
                 return;

@@ -34,16 +34,25 @@ def get_install_path(skill_data):
     path = skill_data.get("install_path", "")
     return os.path.expanduser(path)
 
+def skill_needs_config(skill_data):
+    """Check if skill requires configuration."""
+    return len(skill_data.get("fields", [])) > 0
+
 def get_skill_status(skill_id, skill_data):
     """Get installation status of a skill."""
     install_path = get_install_path(skill_data)
 
     if not os.path.isdir(install_path):
         return "not_installed"
-    elif not os.path.isfile(os.path.join(install_path, ".env")):
-        return "installed"
-    else:
+
+    # Skills without fields are configured once installed
+    if not skill_needs_config(skill_data):
         return "configured"
+
+    if not os.path.isfile(os.path.join(install_path, ".env")):
+        return "installed"
+
+    return "configured"
 
 def install_files(skill_id, skill_data):
     """Install skill files."""
