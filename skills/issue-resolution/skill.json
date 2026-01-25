@@ -1,0 +1,9 @@
+{
+  "name": "issue-resolution",
+  "title": "Issue Resolution",
+  "description": "End-to-end workflow for resolving user-reported problems/bugs",
+  "version": "1.0.0",
+  "install_path": "~/.claude/skills/issue-resolution",
+  "files": ["SKILL.md"],
+  "fields": []
+}

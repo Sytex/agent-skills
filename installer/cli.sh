@@ -280,6 +280,14 @@ get_install_path() {
     echo "${path/#\~/$HOME}"
 }
 
+# Check if skill requires configuration
+skill_needs_config() {
+    local skill="$1"
+    local field_count
+    field_count=$(python3 -c "import json; print(len(json.load(open('$SKILLS_DIR/$skill/skill.json')).get('fields', [])))")
+    [[ "$field_count" -gt 0 ]]
+}
+
 # Get skill status
 get_skill_status() {
     local skill="$1"
@@ -288,7 +296,16 @@ get_skill_status() {
 
     if [[ ! -d "$install_path" ]]; then
         echo "not_installed"
-    elif [[ ! -f "$install_path/.env" ]]; then
+        return
+    fi
+
+    # Skills without fields are "configured" once installed
+    if ! skill_needs_config "$skill"; then
+        echo "configured"
+        return
+    fi
+
+    if [[ ! -f "$install_path/.env" ]]; then
         echo "installed"
     else
         echo "configured"
@@ -329,9 +346,18 @@ show_skill_info() {
     echo ""
 }
 
+# Check if skill has a test command
+skill_has_test() {
+    local skill="$1"
+    local test_cmd
+    test_cmd=$(read_json "$SKILLS_DIR/$skill/skill.json" "test_command")
+    [[ -n "$test_cmd" ]]
+}
+
 # Get available actions for a skill
 get_actions() {
     local status="$1"
+    local skill="$2"
 
     case "$status" in
         not_installed)
@@ -344,8 +370,8 @@ get_actions() {
             echo "Back"
             ;;
         configured)
-            echo "Test"
-            echo "Edit credentials"
+            skill_has_test "$skill" && echo "Test"
+            skill_needs_config "$skill" && echo "Edit credentials"
             echo "Uninstall"
             echo "Back"
             ;;
@@ -529,8 +555,12 @@ do_install() {
     style green "Files installed"
     echo ""
 
-    if confirm "Configure credentials now?"; then
-        configure_skill "$skill"
+    if skill_needs_config "$skill"; then
+        if confirm "Configure credentials now?"; then
+            configure_skill "$skill"
+        fi
+    else
+        style green "Ready to use (no configuration needed)"
     fi
 }
 
@@ -571,7 +601,7 @@ main_menu() {
 
             local status_text
             case "$status" in
-                not_installed) status_text="" ;;
+                not_installed) status_text="(not installed)" ;;
                 installed) status_text="(needs setup)" ;;
                 configured) status_text="(ready)" ;;
             esac
@@ -618,7 +648,7 @@ skill_menu() {
         local actions=()
         while IFS= read -r action; do
             actions+=("$action")
-        done < <(get_actions "$status")
+        done < <(get_actions "$status" "$skill")
 
         local action
         action=$(choose "Select action:" "${actions[@]}")
