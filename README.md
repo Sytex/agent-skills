@@ -22,10 +22,16 @@ Skills for AI coding agents by the Sytex team.
 ./installer/install.sh
 ```
 
+<img width="339" height="288" alt="image" src="https://github.com/user-attachments/assets/63f6be8a-ec36-486f-8eac-a0996766ebd4" />
+
+
 **Web UI:**
 ```bash
 ./installer/install.sh --web
 ```
+
+<img width="1185" height="515" alt="Screenshot 2026-01-24 at 21 47 33" src="https://github.com/user-attachments/assets/50b729fe-6687-42ab-a68e-6e8b0e20e472" />
+
 
 **Direct install:**
 ```bash
