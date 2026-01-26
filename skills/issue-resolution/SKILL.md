@@ -119,13 +119,28 @@ If both already exist, verify linkage. Add if missing.
 - Ask: "Who should I assign this to?" (if not specified)
 - Assign Linear issue and PR to the named developer
 
-### 8. Branch Creation
+### 8. Worktree Setup
+
+Check if already working in a worktree (`git worktree list`). If not, create one to keep the main repo clean.
 
 Once Linear issue ID is known:
-1. Create branch from `master` (or default branch)
-2. Branch name MUST contain Linear ID
 
-Format: `feature/SYT-{id}-{short-description}`
+1. Determine the default branch (usually `main` or `master`)
+2. Update the remote reference with the full refspec:
+   ```bash
+   git fetch origin <default-branch>:refs/remotes/origin/<default-branch>
+   ```
+3. Create worktree with new branch:
+   ```bash
+   git worktree add ../<short-description> -b feature/SYT-{id}-{short-description} origin/<default-branch>
+   ```
+4. Work inside the worktree directory
+
+If already in a worktree, just create/switch to the feature branch from the updated remote.
+
+Branch name format: `feature/SYT-{id}-{short-description}`
+
+**Important:** Always use the full refspec when fetching to ensure the remote reference is updated, not just FETCH_HEAD.
 
 ### 9. Implementation + PR
 
