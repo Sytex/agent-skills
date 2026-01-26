@@ -1,0 +1,680 @@
+#!/bin/bash
+# Pipedrive API CLI with OAuth2
+
+CONFIG_DIR="$HOME/.claude/skills/pipedrive"
+CONFIG_FILE="$CONFIG_DIR/.env"
+TOKEN_FILE="$CONFIG_DIR/.tokens"
+
+mkdir -p "$CONFIG_DIR"
+
+# Load configuration
+load_config() {
+    [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
+    [[ -f "$TOKEN_FILE" ]] && source "$TOKEN_FILE"
+}
+
+save_tokens() {
+    local access="$1"
+    local refresh="$2"
+    local expires="$3"
+    local domain="$4"
+
+    cat > "$TOKEN_FILE" << EOF
+PIPEDRIVE_ACCESS_TOKEN="$access"
+PIPEDRIVE_REFRESH_TOKEN="$refresh"
+PIPEDRIVE_TOKEN_EXPIRES="$expires"
+PIPEDRIVE_COMPANY_DOMAIN="$domain"
+EOF
+    chmod 600 "$TOKEN_FILE"
+}
+
+# OAuth2 token refresh
+refresh_token() {
+    [[ -z "$PIPEDRIVE_CLIENT_ID" || -z "$PIPEDRIVE_CLIENT_SECRET" || -z "$PIPEDRIVE_REFRESH_TOKEN" ]] && return 1
+
+    local auth=$(echo -n "$PIPEDRIVE_CLIENT_ID:$PIPEDRIVE_CLIENT_SECRET" | base64)
+    local response=$(curl -s -X POST "https://oauth.pipedrive.com/oauth/token" \
+        -H "Authorization: Basic $auth" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "grant_type=refresh_token&refresh_token=$PIPEDRIVE_REFRESH_TOKEN")
+
+    local access=$(echo "$response" | jq -r '.access_token // empty')
+    local refresh=$(echo "$response" | jq -r '.refresh_token // empty')
+    local expires_in=$(echo "$response" | jq -r '.expires_in // empty')
+
+    [[ -z "$access" ]] && echo "Error: Token refresh failed" && return 1
+
+    local expires=$(($(date +%s) + expires_in - 60))
+    save_tokens "$access" "$refresh" "$expires" "$PIPEDRIVE_COMPANY_DOMAIN"
+
+    PIPEDRIVE_ACCESS_TOKEN="$access"
+    PIPEDRIVE_REFRESH_TOKEN="$refresh"
+    PIPEDRIVE_TOKEN_EXPIRES="$expires"
+}
+
+ensure_valid_token() {
+    load_config
+
+    [[ -z "$PIPEDRIVE_ACCESS_TOKEN" ]] && echo "Error: Not authenticated. Run: pipedrive auth" && exit 1
+
+    local now=$(date +%s)
+    [[ "$now" -ge "$PIPEDRIVE_TOKEN_EXPIRES" ]] && refresh_token
+}
+
+get_api_url() {
+    echo "https://${PIPEDRIVE_COMPANY_DOMAIN}.pipedrive.com/api/v1"
+}
+
+# API request helpers
+api_get() {
+    ensure_valid_token
+    local endpoint="$1"
+    curl -s -X GET "$(get_api_url)$endpoint" \
+        -H "Authorization: Bearer $PIPEDRIVE_ACCESS_TOKEN" \
+        -H "Content-Type: application/json"
+}
+
+api_post() {
+    ensure_valid_token
+    local endpoint="$1"
+    local data="$2"
+    curl -s -X POST "$(get_api_url)$endpoint" \
+        -H "Authorization: Bearer $PIPEDRIVE_ACCESS_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$data"
+}
+
+api_put() {
+    ensure_valid_token
+    local endpoint="$1"
+    local data="$2"
+    curl -s -X PUT "$(get_api_url)$endpoint" \
+        -H "Authorization: Bearer $PIPEDRIVE_ACCESS_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$data"
+}
+
+api_delete() {
+    ensure_valid_token
+    local endpoint="$1"
+    curl -s -X DELETE "$(get_api_url)$endpoint" \
+        -H "Authorization: Bearer $PIPEDRIVE_ACCESS_TOKEN"
+}
+
+# === AUTH ===
+
+cmd_auth() {
+    echo "Pipedrive OAuth2 Setup"
+    echo "======================"
+    echo ""
+    echo "1. Go to https://developers.pipedrive.com/docs/api/v1"
+    echo "2. Create an app and get your Client ID and Client Secret"
+    echo "3. Set redirect URI to: https://oauth.pipedrive.com/callback"
+    echo ""
+
+    read -p "Client ID: " client_id
+    read -p "Client Secret: " client_secret
+
+    [[ -z "$client_id" || -z "$client_secret" ]] && echo "Error: Both values required" && exit 1
+
+    cat > "$CONFIG_FILE" << EOF
+PIPEDRIVE_CLIENT_ID="$client_id"
+PIPEDRIVE_CLIENT_SECRET="$client_secret"
+EOF
+    chmod 600 "$CONFIG_FILE"
+
+    local auth_url="https://oauth.pipedrive.com/oauth/authorize?client_id=$client_id&redirect_uri=https://oauth.pipedrive.com/callback"
+
+    echo ""
+    echo "Opening browser for authorization..."
+    echo "If it doesn't open, visit: $auth_url"
+    echo ""
+
+    open "$auth_url" 2>/dev/null || xdg-open "$auth_url" 2>/dev/null || echo "Please open the URL manually"
+
+    echo "After authorizing, you'll be redirected to a URL with a code parameter."
+    read -p "Paste the authorization code: " auth_code
+
+    [[ -z "$auth_code" ]] && echo "Error: Authorization code required" && exit 1
+
+    local auth=$(echo -n "$client_id:$client_secret" | base64)
+    local response=$(curl -s -X POST "https://oauth.pipedrive.com/oauth/token" \
+        -H "Authorization: Basic $auth" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "grant_type=authorization_code&code=$auth_code&redirect_uri=https://oauth.pipedrive.com/callback")
+
+    local access=$(echo "$response" | jq -r '.access_token // empty')
+    local refresh=$(echo "$response" | jq -r '.refresh_token // empty')
+    local expires_in=$(echo "$response" | jq -r '.expires_in // empty')
+    local api_domain=$(echo "$response" | jq -r '.api_domain // empty')
+
+    [[ -z "$access" ]] && echo "Error: Failed to get tokens. Response: $response" && exit 1
+
+    local domain=$(echo "$api_domain" | sed 's|https://||' | sed 's|\.pipedrive\.com||')
+    local expires=$(($(date +%s) + expires_in - 60))
+
+    save_tokens "$access" "$refresh" "$expires" "$domain"
+
+    echo ""
+    echo "Authentication successful!"
+    echo "Company domain: $domain"
+}
+
+cmd_status() {
+    load_config
+
+    echo "Pipedrive Auth Status"
+    echo "====================="
+
+    [[ -z "$PIPEDRIVE_CLIENT_ID" ]] && echo "Not configured. Run: pipedrive auth" && exit 0
+
+    echo "Client ID: ${PIPEDRIVE_CLIENT_ID:0:8}..."
+
+    [[ -z "$PIPEDRIVE_ACCESS_TOKEN" ]] && echo "Status: Not authenticated" && exit 0
+
+    echo "Company: $PIPEDRIVE_COMPANY_DOMAIN"
+
+    local now=$(date +%s)
+    local remaining=$((PIPEDRIVE_TOKEN_EXPIRES - now))
+
+    [[ "$remaining" -gt 0 ]] && echo "Token expires in: ${remaining}s" || echo "Token: Expired (will refresh on next request)"
+}
+
+# === USER ===
+
+cmd_me() {
+    api_get "/users/me"
+}
+
+cmd_users() {
+    api_get "/users"
+}
+
+# === DEALS ===
+
+cmd_deals() {
+    local limit=50
+    local status="open"
+    local params=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --limit) limit="$2"; shift 2 ;;
+            --status) status="$2"; shift 2 ;;
+            --pipeline) params="$params&pipeline_id=$2"; shift 2 ;;
+            --stage) params="$params&stage_id=$2"; shift 2 ;;
+            --user) params="$params&user_id=$2"; shift 2 ;;
+            --org) params="$params&org_id=$2"; shift 2 ;;
+            --person) params="$params&person_id=$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    api_get "/deals?limit=$limit&status=$status$params"
+}
+
+cmd_deal() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: deal ID required" && exit 1
+    api_get "/deals/$id"
+}
+
+cmd_deal_create() {
+    local title="$1"
+    [[ -z "$title" ]] && echo "Error: title required" && exit 1
+    shift
+
+    local org_id="" person_id="" pipeline_id="" stage_id="" value="" currency=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --org) org_id="$2"; shift 2 ;;
+            --person) person_id="$2"; shift 2 ;;
+            --pipeline) pipeline_id="$2"; shift 2 ;;
+            --stage) stage_id="$2"; shift 2 ;;
+            --value) value="$2"; shift 2 ;;
+            --currency) currency="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local json="{\"title\":\"$title\""
+    [[ -n "$org_id" ]] && json="$json,\"org_id\":$org_id"
+    [[ -n "$person_id" ]] && json="$json,\"person_id\":$person_id"
+    [[ -n "$pipeline_id" ]] && json="$json,\"pipeline_id\":$pipeline_id"
+    [[ -n "$stage_id" ]] && json="$json,\"stage_id\":$stage_id"
+    [[ -n "$value" ]] && json="$json,\"value\":$value"
+    [[ -n "$currency" ]] && json="$json,\"currency\":\"$currency\""
+    json="$json}"
+
+    api_post "/deals" "$json"
+}
+
+cmd_deal_update() {
+    local id="$1"
+    local field="$2"
+    local value="$3"
+
+    [[ -z "$id" ]] && echo "Error: deal ID required" && exit 1
+    [[ -z "$field" ]] && echo "Error: field required" && exit 1
+    [[ -z "$value" ]] && echo "Error: value required" && exit 1
+
+    local json=""
+    case "$field" in
+        title|currency|status|expected_close_date)
+            json="{\"$field\":\"$value\"}"
+            ;;
+        value|stage_id|pipeline_id|person_id|org_id)
+            json="{\"$field\":$value}"
+            ;;
+        *)
+            echo "Error: unknown field $field"
+            exit 1
+            ;;
+    esac
+
+    api_put "/deals/$id" "$json"
+}
+
+cmd_deal_delete() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: deal ID required" && exit 1
+    api_delete "/deals/$id"
+}
+
+# === PERSONS ===
+
+cmd_persons() {
+    local limit=50
+    local params=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --limit) limit="$2"; shift 2 ;;
+            --org) params="$params&org_id=$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    api_get "/persons?limit=$limit$params"
+}
+
+cmd_person() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: person ID required" && exit 1
+    api_get "/persons/$id"
+}
+
+cmd_person_create() {
+    local name="$1"
+    [[ -z "$name" ]] && echo "Error: name required" && exit 1
+    shift
+
+    local email="" phone="" org_id=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --email) email="$2"; shift 2 ;;
+            --phone) phone="$2"; shift 2 ;;
+            --org) org_id="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local json="{\"name\":\"$name\""
+    [[ -n "$email" ]] && json="$json,\"email\":\"$email\""
+    [[ -n "$phone" ]] && json="$json,\"phone\":\"$phone\""
+    [[ -n "$org_id" ]] && json="$json,\"org_id\":$org_id"
+    json="$json}"
+
+    api_post "/persons" "$json"
+}
+
+cmd_person_update() {
+    local id="$1"
+    local field="$2"
+    local value="$3"
+
+    [[ -z "$id" ]] && echo "Error: person ID required" && exit 1
+    [[ -z "$field" ]] && echo "Error: field required" && exit 1
+    [[ -z "$value" ]] && echo "Error: value required" && exit 1
+
+    local json=""
+    case "$field" in
+        name|email|phone)
+            json="{\"$field\":\"$value\"}"
+            ;;
+        org_id)
+            json="{\"org_id\":$value}"
+            ;;
+        *)
+            echo "Error: unknown field $field"
+            exit 1
+            ;;
+    esac
+
+    api_put "/persons/$id" "$json"
+}
+
+cmd_person_delete() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: person ID required" && exit 1
+    api_delete "/persons/$id"
+}
+
+# === ORGANIZATIONS ===
+
+cmd_orgs() {
+    local limit=50
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --limit) limit="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    api_get "/organizations?limit=$limit"
+}
+
+cmd_org() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: organization ID required" && exit 1
+    api_get "/organizations/$id"
+}
+
+cmd_org_create() {
+    local name="$1"
+    [[ -z "$name" ]] && echo "Error: name required" && exit 1
+    api_post "/organizations" "{\"name\":\"$name\"}"
+}
+
+cmd_org_update() {
+    local id="$1"
+    local field="$2"
+    local value="$3"
+
+    [[ -z "$id" ]] && echo "Error: organization ID required" && exit 1
+    [[ -z "$field" ]] && echo "Error: field required" && exit 1
+    [[ -z "$value" ]] && echo "Error: value required" && exit 1
+
+    local json="{\"$field\":\"$value\"}"
+    api_put "/organizations/$id" "$json"
+}
+
+cmd_org_delete() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: organization ID required" && exit 1
+    api_delete "/organizations/$id"
+}
+
+# === ACTIVITIES ===
+
+cmd_activities() {
+    local limit=50
+    local params=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --limit) limit="$2"; shift 2 ;;
+            --type) params="$params&type=$2"; shift 2 ;;
+            --done) params="$params&done=$2"; shift 2 ;;
+            --user) params="$params&user_id=$2"; shift 2 ;;
+            --deal) params="$params&deal_id=$2"; shift 2 ;;
+            --person) params="$params&person_id=$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    api_get "/activities?limit=$limit$params"
+}
+
+cmd_activity() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: activity ID required" && exit 1
+    api_get "/activities/$id"
+}
+
+cmd_activity_create() {
+    local type="$1"
+    local subject="$2"
+    [[ -z "$type" ]] && echo "Error: type required (call, meeting, task, deadline, email, lunch)" && exit 1
+    [[ -z "$subject" ]] && echo "Error: subject required" && exit 1
+    shift 2
+
+    local deal_id="" person_id="" org_id="" due_date="" due_time="" duration="" note=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --deal) deal_id="$2"; shift 2 ;;
+            --person) person_id="$2"; shift 2 ;;
+            --org) org_id="$2"; shift 2 ;;
+            --due) due_date="$2"; shift 2 ;;
+            --time) due_time="$2"; shift 2 ;;
+            --duration) duration="$2"; shift 2 ;;
+            --note) note="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local json="{\"type\":\"$type\",\"subject\":\"$subject\""
+    [[ -n "$deal_id" ]] && json="$json,\"deal_id\":$deal_id"
+    [[ -n "$person_id" ]] && json="$json,\"person_id\":$person_id"
+    [[ -n "$org_id" ]] && json="$json,\"org_id\":$org_id"
+    [[ -n "$due_date" ]] && json="$json,\"due_date\":\"$due_date\""
+    [[ -n "$due_time" ]] && json="$json,\"due_time\":\"$due_time\""
+    [[ -n "$duration" ]] && json="$json,\"duration\":$duration"
+    [[ -n "$note" ]] && json="$json,\"note\":\"$note\""
+    json="$json}"
+
+    api_post "/activities" "$json"
+}
+
+cmd_activity_done() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: activity ID required" && exit 1
+    api_put "/activities/$id" "{\"done\":true}"
+}
+
+cmd_activity_delete() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: activity ID required" && exit 1
+    api_delete "/activities/$id"
+}
+
+# === PIPELINES & STAGES ===
+
+cmd_pipelines() {
+    api_get "/pipelines"
+}
+
+cmd_pipeline() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: pipeline ID required" && exit 1
+    api_get "/pipelines/$id"
+}
+
+cmd_stages() {
+    local pipeline_id="$1"
+    [[ -z "$pipeline_id" ]] && echo "Error: pipeline ID required" && exit 1
+    api_get "/stages?pipeline_id=$pipeline_id"
+}
+
+# === NOTES ===
+
+cmd_notes() {
+    local entity="$1"
+    local id="$2"
+    [[ -z "$entity" ]] && echo "Error: entity type required (deal, person, org)" && exit 1
+    [[ -z "$id" ]] && echo "Error: entity ID required" && exit 1
+
+    local param=""
+    case "$entity" in
+        deal) param="deal_id=$id" ;;
+        person) param="person_id=$id" ;;
+        org) param="org_id=$id" ;;
+        *) echo "Error: entity must be deal, person, or org" && exit 1 ;;
+    esac
+
+    api_get "/notes?$param"
+}
+
+cmd_note_create() {
+    local entity="$1"
+    local id="$2"
+    local content="$3"
+    [[ -z "$entity" ]] && echo "Error: entity type required (deal, person, org)" && exit 1
+    [[ -z "$id" ]] && echo "Error: entity ID required" && exit 1
+    [[ -z "$content" ]] && echo "Error: note content required" && exit 1
+
+    local json="{\"content\":\"$content\""
+    case "$entity" in
+        deal) json="$json,\"deal_id\":$id" ;;
+        person) json="$json,\"person_id\":$id" ;;
+        org) json="$json,\"org_id\":$id" ;;
+        *) echo "Error: entity must be deal, person, or org" && exit 1 ;;
+    esac
+    json="$json}"
+
+    api_post "/notes" "$json"
+}
+
+# === SEARCH ===
+
+cmd_search() {
+    local query="$1"
+    [[ -z "$query" ]] && echo "Error: search query required" && exit 1
+    shift
+
+    local item_types=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --type) item_types="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local params="term=$query"
+    [[ -n "$item_types" ]] && params="$params&item_types=$item_types"
+
+    api_get "/itemSearch?$params"
+}
+
+# === MAIN ===
+
+show_help() {
+    echo "Pipedrive API CLI (OAuth2)"
+    echo ""
+    echo "SETUP:"
+    echo "  auth                              Setup OAuth2 authentication"
+    echo "  status                            Check authentication status"
+    echo ""
+    echo "ACCOUNT:"
+    echo "  me                                Get current user info"
+    echo "  users                             List all users"
+    echo ""
+    echo "DEALS:"
+    echo "  deals [flags]                     List deals"
+    echo "    --limit <n>                     Max results (default: 50)"
+    echo "    --status <status>               open, won, lost, all (default: open)"
+    echo "    --pipeline <id>                 Filter by pipeline"
+    echo "    --stage <id>                    Filter by stage"
+    echo "    --user <id>                     Filter by owner"
+    echo "    --org <id>                      Filter by organization"
+    echo "    --person <id>                   Filter by person"
+    echo "  deal <id>                         Get deal details"
+    echo "  deal-create <title> [flags]       Create deal"
+    echo "    --org <id>                      Link to organization"
+    echo "    --person <id>                   Link to person"
+    echo "    --pipeline <id>                 Pipeline ID"
+    echo "    --stage <id>                    Stage ID"
+    echo "    --value <amount>                Deal value"
+    echo "    --currency <code>               Currency code"
+    echo "  deal-update <id> <field> <value>  Update deal"
+    echo "  deal-delete <id>                  Delete deal"
+    echo ""
+    echo "PERSONS:"
+    echo "  persons [flags]                   List persons"
+    echo "    --limit <n>                     Max results (default: 50)"
+    echo "    --org <id>                      Filter by organization"
+    echo "  person <id>                       Get person details"
+    echo "  person-create <name> [flags]      Create person"
+    echo "    --email <email>                 Email address"
+    echo "    --phone <phone>                 Phone number"
+    echo "    --org <id>                      Link to organization"
+    echo "  person-update <id> <field> <val>  Update person"
+    echo "  person-delete <id>                Delete person"
+    echo ""
+    echo "ORGANIZATIONS:"
+    echo "  orgs [--limit n]                  List organizations"
+    echo "  org <id>                          Get organization details"
+    echo "  org-create <name>                 Create organization"
+    echo "  org-update <id> <field> <value>   Update organization"
+    echo "  org-delete <id>                   Delete organization"
+    echo ""
+    echo "ACTIVITIES:"
+    echo "  activities [flags]                List activities"
+    echo "    --limit <n>                     Max results (default: 50)"
+    echo "    --type <type>                   call, meeting, task, deadline, email, lunch"
+    echo "    --done <0|1>                    Filter by done status"
+    echo "    --user <id>                     Filter by user"
+    echo "    --deal <id>                     Filter by deal"
+    echo "    --person <id>                   Filter by person"
+    echo "  activity <id>                     Get activity details"
+    echo "  activity-create <type> <subject>  Create activity"
+    echo "    --deal <id>                     Link to deal"
+    echo "    --person <id>                   Link to person"
+    echo "    --org <id>                      Link to organization"
+    echo "    --due <YYYY-MM-DD>              Due date"
+    echo "    --time <HH:MM>                  Due time"
+    echo "    --duration <mins>               Duration in minutes"
+    echo "    --note <text>                   Activity note"
+    echo "  activity-done <id>                Mark activity as done"
+    echo "  activity-delete <id>              Delete activity"
+    echo ""
+    echo "PIPELINES & STAGES:"
+    echo "  pipelines                         List all pipelines"
+    echo "  pipeline <id>                     Get pipeline details"
+    echo "  stages <pipeline-id>              List stages in a pipeline"
+    echo ""
+    echo "NOTES:"
+    echo "  notes <entity> <id>               List notes (entity: deal, person, org)"
+    echo "  note-create <entity> <id> <text>  Add note to entity"
+    echo ""
+    echo "SEARCH:"
+    echo "  search <query> [--type <type>]    Search (type: deal, person, organization)"
+}
+
+case "$1" in
+    auth) cmd_auth ;;
+    status) cmd_status ;;
+    me) cmd_me ;;
+    users) cmd_users ;;
+    deals) shift; cmd_deals "$@" ;;
+    deal) cmd_deal "$2" ;;
+    deal-create) shift; cmd_deal_create "$@" ;;
+    deal-update) cmd_deal_update "$2" "$3" "$4" ;;
+    deal-delete) cmd_deal_delete "$2" ;;
+    persons) shift; cmd_persons "$@" ;;
+    person) cmd_person "$2" ;;
+    person-create) shift; cmd_person_create "$@" ;;
+    person-update) cmd_person_update "$2" "$3" "$4" ;;
+    person-delete) cmd_person_delete "$2" ;;
+    orgs) shift; cmd_orgs "$@" ;;
+    org) cmd_org "$2" ;;
+    org-create) cmd_org_create "$2" ;;
+    org-update) cmd_org_update "$2" "$3" "$4" ;;
+    org-delete) cmd_org_delete "$2" ;;
+    activities) shift; cmd_activities "$@" ;;
+    activity) cmd_activity "$2" ;;
+    activity-create) shift; cmd_activity_create "$@" ;;
+    activity-done) cmd_activity_done "$2" ;;
+    activity-delete) cmd_activity_delete "$2" ;;
+    pipelines) cmd_pipelines ;;
+    pipeline) cmd_pipeline "$2" ;;
+    stages) cmd_stages "$2" ;;
+    notes) cmd_notes "$2" "$3" ;;
+    note-create) cmd_note_create "$2" "$3" "$4" ;;
+    search) shift; cmd_search "$@" ;;
+    *) show_help ;;
+esac
