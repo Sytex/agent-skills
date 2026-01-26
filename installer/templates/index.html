@@ -109,6 +109,11 @@
             color: var(--green);
         }
 
+        .badge-outdated {
+            background: rgba(234, 179, 8, 0.15);
+            color: var(--yellow);
+        }
+
         .skill-description {
             color: var(--text-dim);
             font-size: 0.9rem;
@@ -470,6 +475,7 @@
                 case 'not_installed': return 'Not Installed';
                 case 'installed': return 'Needs Config';
                 case 'configured': return 'Ready';
+                case 'outdated': return 'Update Available';
                 default: return status;
             }
         }
@@ -512,6 +518,20 @@
                 html += `
                     <p style="color:var(--text-dim);margin-bottom:1.5rem">${skill.description}</p>
                     <button class="btn btn-primary" onclick="installSkill()" style="width:100%;padding:1rem;font-size:1.1rem">Install ${skill.title}</button>
+                `;
+                document.getElementById('modal-body').innerHTML = html;
+                return;
+            }
+
+            // Outdated - show update button prominently
+            if (skill.status === 'outdated') {
+                html += `
+                    <p style="color:var(--text-dim);margin-bottom:1.5rem">${skill.description}</p>
+                    <div class="alert alert-info">A new version is available. Your credentials will be preserved.</div>
+                    <button class="btn btn-primary" onclick="updateSkill()" style="width:100%;padding:1rem;font-size:1.1rem">Update ${skill.title}</button>
+                    <div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)">
+                        <button class="btn btn-danger" onclick="uninstallSkill()" style="width:100%">Uninstall</button>
+                    </div>
                 `;
                 document.getElementById('modal-body').innerHTML = html;
                 return;
@@ -646,8 +666,8 @@
         }
 
         async function updateSkill() {
-            await fetch(`${API}/skills/${currentSkill.id}/install`, { method: 'POST' });
-            showToast('Files updated');
+            await fetch(`${API}/skills/${currentSkill.id}/update`, { method: 'POST' });
+            showToast('Skill updated');
             await refreshSkill();
         }
 

@@ -4,6 +4,7 @@ Agent Skills Installer - Web Server
 Uses only Python stdlib, no external dependencies.
 """
 
+import hashlib
 import http.server
 import json
 import os
@@ -15,6 +16,20 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent.resolve()
 SKILLS_DIR = SCRIPT_DIR.parent / "skills"
 TEMPLATES_DIR = SCRIPT_DIR / "templates"
+
+def compute_skill_checksum(skill_id, skill_data):
+    """Compute checksum of skill files in the repo."""
+    skill_dir = SKILLS_DIR / skill_id
+    files = skill_data.get("files", [])
+
+    hasher = hashlib.sha256()
+    for file_spec in sorted(files):
+        src = file_spec.split(":")[0] if ":" in file_spec else file_spec
+        src_path = skill_dir / src
+        if src_path.exists():
+            hasher.update(src_path.read_bytes())
+
+    return hasher.hexdigest()[:16]
 
 def get_skills():
     """Get list of available skills."""
@@ -45,6 +60,18 @@ def get_skill_status(skill_id, skill_data):
     if not os.path.isdir(install_path):
         return "not_installed"
 
+    # Check if outdated (no checksum = old install, treat as outdated)
+    checksum_file = os.path.join(install_path, ".checksum")
+    repo_checksum = compute_skill_checksum(skill_id, skill_data)
+
+    if not os.path.isfile(checksum_file):
+        return "outdated"
+
+    with open(checksum_file) as f:
+        installed_checksum = f.read().strip()
+    if installed_checksum != repo_checksum:
+        return "outdated"
+
     # Skills without fields are configured once installed
     if not skill_needs_config(skill_data):
         return "configured"
@@ -74,6 +101,11 @@ def install_files(skill_id, skill_data):
         if src_path.exists():
             dst_path.write_bytes(src_path.read_bytes())
             os.chmod(dst_path, 0o755)
+
+    # Save checksum
+    checksum = compute_skill_checksum(skill_id, skill_data)
+    checksum_path = Path(install_path) / ".checksum"
+    checksum_path.write_text(checksum)
 
 def save_config(skill_data, config):
     """Save configuration to .env file."""
@@ -251,6 +283,14 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
             if skill_id in skills:
                 uninstall_skill(skills[skill_id])
                 self.send_json({"success": True, "message": "Uninstalled"})
+            else:
+                self.send_json({"error": "Skill not found"}, 404)
+
+        elif path.startswith("/api/skills/") and path.endswith("/update"):
+            skill_id = path.split("/")[3]
+            if skill_id in skills:
+                install_files(skill_id, skills[skill_id])
+                self.send_json({"success": True, "message": "Updated"})
             else:
                 self.send_json({"error": "Skill not found"}, 404)
 

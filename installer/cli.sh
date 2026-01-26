@@ -188,7 +188,7 @@ confirm() {
     local prompt="$1"
 
     if [[ -n "$GUM" ]]; then
-        "$GUM" confirm "$prompt" && return 0 || return 1
+        "$GUM" confirm --default=false "$prompt" && return 0 || return 1
     else
         read -p "$prompt [y/N] " response
         [[ "$response" =~ ^[Yy] ]] && return 0 || return 1
@@ -255,6 +255,32 @@ get_skills() {
     done
 }
 
+# Compute checksum of skill files in repo
+compute_skill_checksum() {
+    local skill="$1"
+    local skill_dir="$SKILLS_DIR/$skill"
+    local skill_json="$skill_dir/skill.json"
+
+    python3 -c "
+import hashlib
+import json
+from pathlib import Path
+
+skill_dir = Path('$skill_dir')
+with open('$skill_json') as f:
+    data = json.load(f)
+
+hasher = hashlib.sha256()
+for file_spec in sorted(data.get('files', [])):
+    src = file_spec.split(':')[0] if ':' in file_spec else file_spec
+    src_path = skill_dir / src
+    if src_path.exists():
+        hasher.update(src_path.read_bytes())
+
+print(hasher.hexdigest()[:16])
+"
+}
+
 # Read skill.json field using Python (cross-platform)
 read_json() {
     local file="$1"
@@ -296,6 +322,22 @@ get_skill_status() {
 
     if [[ ! -d "$install_path" ]]; then
         echo "not_installed"
+        return
+    fi
+
+    # Check if outdated (no checksum = old install, treat as outdated)
+    local repo_checksum
+    repo_checksum=$(compute_skill_checksum "$skill")
+
+    if [[ ! -f "$install_path/.checksum" ]]; then
+        echo "outdated"
+        return
+    fi
+
+    local installed_checksum
+    installed_checksum=$(cat "$install_path/.checksum")
+    if [[ "$installed_checksum" != "$repo_checksum" ]]; then
+        echo "outdated"
         return
     fi
 
@@ -342,6 +384,9 @@ show_skill_info() {
         configured)
             style green "Configured"
             ;;
+        outdated)
+            style yellow "Update available"
+            ;;
     esac
     echo ""
 }
@@ -370,6 +415,13 @@ get_actions() {
             echo "Back"
             ;;
         configured)
+            skill_has_test "$skill" && echo "Test"
+            skill_needs_config "$skill" && echo "Edit credentials"
+            echo "Uninstall"
+            echo "Back"
+            ;;
+        outdated)
+            echo "Update"
             skill_has_test "$skill" && echo "Test"
             skill_needs_config "$skill" && echo "Edit credentials"
             echo "Uninstall"
@@ -406,6 +458,9 @@ install_files() {
             chmod +x "$install_path/$dst" 2>/dev/null || true
         fi
     done < <(read_json "$skill_json" "files")
+
+    # Save checksum
+    compute_skill_checksum "$skill" > "$install_path/.checksum"
 }
 
 # Configure skill credentials
@@ -574,6 +629,14 @@ do_test() {
     test_skill "$skill"
 }
 
+do_update() {
+    local skill="$1"
+
+    style cyan "Updating $skill..."
+    install_files "$skill"
+    style green "Updated (credentials preserved)"
+}
+
 do_uninstall() {
     local skill="$1"
 
@@ -604,6 +667,7 @@ main_menu() {
                 not_installed) status_text="(not installed)" ;;
                 installed) status_text="(needs setup)" ;;
                 configured) status_text="(ready)" ;;
+                outdated) status_text="(update available)" ;;
             esac
 
             skill_options+=("$title $status_text")
@@ -615,7 +679,7 @@ main_menu() {
         local choice
         choice=$(choose "Select a skill:" "${skill_options[@]}")
 
-        [[ "$choice" == "Exit" ]] && break
+        [[ "$choice" == "Exit" || "$choice" == "Back" ]] && break
 
         # Extract skill name from choice (remove status text in parentheses)
         local skill_title="${choice%% (*}"
@@ -655,6 +719,7 @@ skill_menu() {
 
         case "$action" in
             "Install") do_install "$skill" ;;
+            "Update") do_update "$skill" ;;
             "Connect") do_configure "$skill" ;;
             "Test") do_test "$skill" ;;
             "Edit credentials") do_configure "$skill" ;;
@@ -688,12 +753,13 @@ else
 
     case "$action" in
         install) do_install "$skill" ;;
+        update) do_update "$skill" ;;
         connect) do_configure "$skill" ;;
         test) do_test "$skill" ;;
         uninstall) do_uninstall "$skill" ;;
         *)
             style red "Unknown action: $action"
-            echo "Available: install, connect, test, uninstall"
+            echo "Available: install, update, connect, test, uninstall"
             exit 1
             ;;
     esac
