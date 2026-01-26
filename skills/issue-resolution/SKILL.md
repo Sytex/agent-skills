@@ -1,69 +1,49 @@
 ---
 name: issue-resolution
-description: End-to-end workflow for resolving user-reported problems/bugs. Use when someone reports an issue, error, bug, or problem - whether it comes with a Sentry link, Linear issue, both, or neither.
+description: End-to-end workflow for resolving/fixing problems/bugs. Use when someone reports an issue, error, bug, or problem - whether it comes with a Sentry link, Linear issue, both, or neither.
+context: fork
+agent: general-purpose
 ---
 
-# Issue Resolution Workflow
+# Issue Resolution Workflow (MANDATORY)
 
-Resolve user-reported problems safely and consistently. This workflow integrates Sentry, Linear, and GitHub.
-
-## Operating Principles (Non-Negotiable)
-
-- **Investigate first** - No blind fixes
-- **Propose before acting** - Always explain the solution before implementing
-- **Explicit confirmation required** - Only proceed after user says "go ahead"
-- **Ensure tracking exists** - Every fix needs a Linear issue
-- **Link Sentry↔Linear** - When both exist, cross-reference them
-- **Branch naming** - Always include Linear issue ID in branch name
-- **Reuse existing skills** - Check for available skills before performing actions
-
-## Skill Reuse Requirement
-
-Before performing any action, check if an existing skill can do it:
-
-| Action | Check for skill |
-|--------|-----------------|
-| Sentry operations | `/sentry` |
-| Linear operations | Use Linear MCP tools |
-| Create commit | `/commit` |
-| Create PR | `/pr` |
-| Create changelog | `/changelog` |
-
-If a skill exists, use it. Note which skill was used for traceability.
+YOU MUST follow this workflow exactly. Do NOT skip steps. Do NOT deviate.
 
 ---
 
-## Workflow Steps
-
-### 1. Intake
+## STEP 1: Intake (REQUIRED)
 
 Determine what was provided:
 - Sentry issue/event link?
 - Linear issue ID/link?
 - Free-form description?
 
-Ask only minimum questions needed to understand the problem. Don't interrogate.
+Ask only minimum questions needed to understand the problem.
 
-### 2. Investigation (Read-Only)
+---
 
-Gather context without making changes:
+## STEP 2: Investigation (REQUIRED)
+
+Gather context WITHOUT making changes:
 - If Sentry provided: fetch issue details, stacktrace, affected users
 - Search codebase for relevant code
 - Check recent commits/changes
-- Review logs if available
 
-Produce:
+YOU MUST produce:
 - **Investigation summary**: What you found
 - **Hypothesis**: Most likely root cause
 
-### 3. Propose Solution
+Do NOT proceed to Step 3 until investigation is complete.
 
-Adapt explanation to the requester:
+---
+
+## STEP 3: Propose Solution (REQUIRED)
+
+Present your findings and proposed fix to the user.
 
 **If requester is NOT a developer:**
 - Explain in user terms (non-technical)
 - Describe expected outcome
-- Mention any operational steps needed
 
 **If requester IS a developer:**
 - Technical diagnosis
@@ -71,62 +51,53 @@ Adapt explanation to the requester:
 - Files/areas affected
 - Implementation approach
 
-### 4. Confirmation Gate
+---
+
+## STEP 4: Confirmation Gate (MANDATORY)
 
 Ask explicitly:
 
 > "Do you approve proceeding with this fix?"
 
-If user does NOT approve:
-- Stop implementation
-- Ask what's missing or unclear
-- Offer alternative approaches if applicable
+**NEVER proceed without explicit user approval.**
 
-**Do not proceed without explicit approval.**
+If user does NOT approve: stop and ask what's missing.
 
-### 5. Ensure Linear Issue Exists
+---
 
-Only after approval:
+## STEP 5: Ensure Linear Issue Exists (MANDATORY)
+
+YOU MUST have a Linear issue before proceeding. This is NON-NEGOTIABLE.
 
 - If Linear issue exists → use it
-- If not → ask: "Should I create a Linear issue, or do you have one?"
+- If NOT → ask: "Should I create a Linear issue, or do you have one?"
 
 If creating a Linear issue, include:
 - Clear title
 - Description with repro steps
-- Expected vs actual behavior
 - Investigation summary
 - Proposed fix
 
-### 6. Sentry ↔ Linear Association
+**Do NOT proceed to Step 6 until Linear issue ID is confirmed.**
+
+---
+
+## STEP 6: Sentry ↔ Linear Association
 
 If Sentry issue exists:
-1. Ensure Linear issue exists (step 5)
-2. Add Sentry link to Linear issue (comment or description)
-3. Add Linear issue link to Sentry (comment/annotation)
+1. Add Sentry link to Linear issue (comment or description)
+2. Add Linear issue link to Sentry (comment/annotation)
 
-If both already exist, verify linkage. Add if missing.
+---
 
-### 7. Assignment Rules
+## STEP 7: Worktree Setup (MANDATORY)
 
-**If requester IS a developer:**
-- Assign Linear issue to requester
-- Assign PR to requester (once created)
-
-**If requester is NOT a developer:**
-- Do NOT assign PR to them
-- Record in both places: "Requested by: {name/role}"
-- Ask: "Who should I assign this to?" (if not specified)
-- Assign Linear issue and PR to the named developer
-
-### 8. Worktree Setup
-
-Check if already working in a worktree (`git worktree list`). If not, create one to keep the main repo clean.
+YOU MUST work in a git worktree. Check if already in one: `git worktree list`
 
 Once Linear issue ID is known:
 
-1. Determine the default branch (usually `main` or `master`)
-2. Update the remote reference with the full refspec:
+1. Determine the default branch (`main` or `master`)
+2. Update remote reference with full refspec:
    ```bash
    git fetch origin <default-branch>:refs/remotes/origin/<default-branch>
    ```
@@ -136,45 +107,59 @@ Once Linear issue ID is known:
    ```
 4. Work inside the worktree directory
 
-If already in a worktree, just create/switch to the feature branch from the updated remote.
+If already in a worktree, create/switch to the feature branch from the updated remote.
 
 Branch name format: `feature/SYT-{id}-{short-description}`
 
-**Important:** Always use the full refspec when fetching to ensure the remote reference is updated, not just FETCH_HEAD.
+**IMPORTANT:** ALWAYS use the full refspec when fetching. NEVER use just `git fetch origin <branch>`.
 
-### 9. Implementation + PR
-
-Once approved, execute without interruption:
-
-1. Implement according to approved plan
-2. Use `/commit` skill to commit
-3. Use `/pr` skill to create PR
-
-PR must include:
-- Linear issue link (always)
-- Sentry issue link (if applicable)
-- Apply assignment rules from step 7
-
-**Do not ask for confirmation during this phase.** Complete all steps, then report.
-
-### 10. Safe Stop Conditions
-
-Stop and ask for clarification if:
-- Issue is not reproducible
-- Missing key information
-- Requester says "just fix it" without context
-
-Push back politely: "I need a bit more context to fix this safely. Can you tell me..."
+**Do NOT proceed to Step 8 until you are in the correct worktree with the correct branch.**
 
 ---
 
-## Final Summary
+## STEP 8: Implementation (REQUIRED)
 
-After completing the workflow, provide a **brief summary** with relevant links:
+Implement according to approved plan.
+
+- Write the fix
+- Write/update tests
+- Run tests to verify
+
+---
+
+## STEP 9: Commit and PR (MANDATORY)
+
+YOU MUST complete these steps. Do NOT stop before creating the PR.
+
+1. Use `/commit` skill to commit
+2. Use `/pr` skill to create PR
+
+PR MUST include:
+- Linear issue link (ALWAYS)
+- Sentry issue link (if applicable)
+
+**NEVER report completion without a PR link.**
+
+---
+
+## STEP 10: Final Summary (REQUIRED)
+
+After ALL steps are complete, provide a brief summary:
 
 - What was fixed (1-2 sentences)
 - PR link
 - Linear issue link
 - Sentry issue link (if applicable)
 
-Keep it concise. No checklists or verbose reports.
+---
+
+## Verification Checklist
+
+Before reporting success, verify:
+- [ ] Linear issue exists
+- [ ] Branch includes Linear ID
+- [ ] Commit was created
+- [ ] PR was created and link is provided
+- [ ] Sentry↔Linear linked (if Sentry was involved)
+
+**If ANY item is missing, you have NOT completed the workflow.**
