@@ -1,6 +1,6 @@
 ---
 name: sytex
-description: Connect to Sytex platform API. Use when user mentions Sytex, app, claro, ufinet, dt, adc, atis, exsei, integrar, torresec, or app_eu instances. Handles tasks, projects, forms, materials, organizations.
+description: Connect to Sytex platform API. Use when user mentions Sytex, app, claro, ufinet, dt, adc, atis, exsei, integrar, torresec, or app_eu instances. Handles tasks, projects, forms, materials, organizations, and chats.
 allowed-tools:
   - Read
   - Bash(~/.claude/skills/sytex/*:*)
@@ -8,7 +8,7 @@ allowed-tools:
 
 # Sytex API Integration
 
-Manage tasks, projects, sites, materials, forms, and automations via the Sytex API.
+Manage tasks, projects, sites, materials, forms, chats, and automations via the Sytex API.
 
 ## Required Flags
 
@@ -104,6 +104,25 @@ Models: `workstructure`, `task`, `project`, `site`, `client`, `staff`, `form`, `
 | `find-org <name>` | (none) | Search across ALL instances |
 | `orgs [--q QUERY]` | `--base-url` only | List orgs in one instance |
 
+### Chat
+| Command | Description |
+|---------|-------------|
+| `chats [flags]` | Search chats |
+| `chat <id>` | Get chat details |
+| `chat-create <json>` | Create chat |
+| `chat-update <id> <json>` | Update chat title |
+| `chat-messages <id> [flags]` | Get chat messages |
+| `chat-send <id> <message>` | Send text message |
+| `chat-send-json <id> <json>` | Send message with JSON (for files/replies) |
+| `chat-mark-read <id>` | Mark chat as read |
+| `chat-add-participant <id> <json>` | Add participant |
+| `chat-remove-participant <id> <json>` | Remove participant |
+| `chat-close <id>` | Close chat |
+| `chat-reopen <id>` | Reopen chat |
+| `chat-unread-counts` | Get unread counts |
+| `chat-board [flags]` | Get chat board |
+| `chat-teams [flags]` | List chat teams |
+
 ### Generic Endpoints
 | Command | Description |
 |---------|-------------|
@@ -138,4 +157,25 @@ Models: `workstructure`, `task`, `project`, `site`, `client`, `staff`, `form`, `
 
 # Execute automation
 ~/.claude/skills/sytex/sytex --base-url https://app.sytex.io --org 141 automation "uuid-here" '{"key": "value"}'
+
+# Search chats
+~/.claude/skills/sytex/sytex --base-url https://app.sytex.io --org 141 chats --q "proyecto"
+
+# Search chats related to a task
+~/.claude/skills/sytex/sytex --base-url https://app.sytex.io --org 141 chats --related-type task --related-id 12345
+
+# Get chat messages
+~/.claude/skills/sytex/sytex --base-url https://app.sytex.io --org 141 chat-messages 100 --limit 20
+
+# Send message
+~/.claude/skills/sytex/sytex --base-url https://app.sytex.io --org 141 chat-send 100 "Hello from CLI"
+
+# Create chat
+~/.claude/skills/sytex/sytex --base-url https://app.sytex.io --org 141 chat-create '{"title": "New chat", "participants": [{"type": "user", "id": 5}]}'
+
+# Add participant to chat
+~/.claude/skills/sytex/sytex --base-url https://app.sytex.io --org 141 chat-add-participant 100 '{"user_id": 5}'
+
+# Close chat
+~/.claude/skills/sytex/sytex --base-url https://app.sytex.io --org 141 chat-close 100
 ```

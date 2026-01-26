@@ -1,7 +1,7 @@
 {
   "name": "sytex",
   "title": "Sytex",
-  "description": "Interact with Sytex production API",
+  "description": "Interact with Sytex production API (tasks, projects, forms, materials, chats)",
   "version": "1.0.0",
   "setup_instructions": "To connect Sytex, you need an API token. Ask your Sytex administrator for one.",
   "fields": [

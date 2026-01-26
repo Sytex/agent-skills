@@ -24,11 +24,11 @@ done
 set -- "${args[@]}"
 
 # Commands that don't require --org and --base-url
-NO_FLAGS_COMMANDS="find-org"
+NO_FLAGS_COMMANDS="find-org help"
 # Commands that only require --base-url (not --org)
 BASE_URL_ONLY_COMMANDS="orgs"
 
-if [[ " $NO_FLAGS_COMMANDS " == *" $1 "* ]]; then
+if [[ -z "$1" || " $NO_FLAGS_COMMANDS " == *" $1 "* ]]; then
     : # No flags required
 elif [[ " $BASE_URL_ONLY_COMMANDS " == *" $1 "* ]]; then
     [[ -z "$SYTEX_BASE_URL" ]] && echo "Error: --base-url required" && exit 1
@@ -509,6 +509,153 @@ cmd_find_org() {
     echo "}"
 }
 
+# === CHAT ===
+
+cmd_chats() {
+    local params=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --limit) params+=("page_size=$2"); shift 2 ;;
+            --page) params+=("page=$2"); shift 2 ;;
+            --q) params+=("q=$(url_encode "$2")"); shift 2 ;;
+            --related-type) params+=("related_object_type=$2"); shift 2 ;;
+            --related-id) params+=("related_object_id=$2"); shift 2 ;;
+            --own) params+=("own_chats=true"); shift ;;
+            --team-only) params+=("team_chats_only=true"); shift ;;
+            --closed) params+=("is_closed=true"); shift ;;
+            --include-closed) params+=("include_closed=true"); shift ;;
+            *) shift ;;
+        esac
+    done
+
+    local query=$(build_query "${params[@]}")
+    [[ -n "$query" ]] && query="?$query"
+    api_get "/chat/v2/chats/search/${query}"
+}
+
+cmd_chat() {
+    local chat_id="$1"
+    [[ -z "$chat_id" ]] && echo "Error: chat ID required" && exit 1
+    api_get "/chat/v2/chats/${chat_id}/"
+}
+
+cmd_chat_create() {
+    local data="$1"
+    [[ -z "$data" ]] && echo "Error: JSON data required" && exit 1
+    api_post "/chat/v2/chats/" "$data"
+}
+
+cmd_chat_update() {
+    local chat_id="$1"
+    local data="$2"
+    [[ -z "$chat_id" ]] && echo "Error: chat ID required" && exit 1
+    [[ -z "$data" ]] && echo "Error: JSON data required" && exit 1
+    api_patch "/chat/v2/chats/${chat_id}/" "$data"
+}
+
+cmd_chat_messages() {
+    local chat_id="$1"
+    shift
+    [[ -z "$chat_id" ]] && echo "Error: chat ID required" && exit 1
+
+    local params=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --limit) params+=("page_size=$2"); shift 2 ;;
+            --page) params+=("page=$2"); shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local query=$(build_query "${params[@]}")
+    [[ -n "$query" ]] && query="?$query"
+    api_get "/chat/v2/chats/${chat_id}/messages/${query}"
+}
+
+cmd_chat_send() {
+    local chat_id="$1"
+    local content="$2"
+    [[ -z "$chat_id" ]] && echo "Error: chat ID required" && exit 1
+    [[ -z "$content" ]] && echo "Error: message content required" && exit 1
+    api_post "/chat/v2/chats/${chat_id}/send_message/" "{\"content\": \"$content\"}"
+}
+
+cmd_chat_send_json() {
+    local chat_id="$1"
+    local data="$2"
+    [[ -z "$chat_id" ]] && echo "Error: chat ID required" && exit 1
+    [[ -z "$data" ]] && echo "Error: JSON data required" && exit 1
+    api_post "/chat/v2/chats/${chat_id}/send_message/" "$data"
+}
+
+cmd_chat_mark_read() {
+    local chat_id="$1"
+    [[ -z "$chat_id" ]] && echo "Error: chat ID required" && exit 1
+    api_post "/chat/v2/chats/${chat_id}/mark_read/" "{}"
+}
+
+cmd_chat_add_participant() {
+    local chat_id="$1"
+    local data="$2"
+    [[ -z "$chat_id" ]] && echo "Error: chat ID required" && exit 1
+    [[ -z "$data" ]] && echo "Error: JSON data required (user_id or team_id)" && exit 1
+    api_post "/chat/v2/chats/${chat_id}/add_participant/" "$data"
+}
+
+cmd_chat_remove_participant() {
+    local chat_id="$1"
+    local data="$2"
+    [[ -z "$chat_id" ]] && echo "Error: chat ID required" && exit 1
+    [[ -z "$data" ]] && echo "Error: JSON data required (user_id or team_id)" && exit 1
+    api_post "/chat/v2/chats/${chat_id}/remove_participant/" "$data"
+}
+
+cmd_chat_close() {
+    local chat_id="$1"
+    [[ -z "$chat_id" ]] && echo "Error: chat ID required" && exit 1
+    api_post "/chat/v2/chats/${chat_id}/close/" "{}"
+}
+
+cmd_chat_reopen() {
+    local chat_id="$1"
+    [[ -z "$chat_id" ]] && echo "Error: chat ID required" && exit 1
+    api_post "/chat/v2/chats/${chat_id}/reopen/" "{}"
+}
+
+cmd_chat_unread_counts() {
+    api_get "/chat/v2/chats/unread_counts/"
+}
+
+cmd_chat_board() {
+    local params=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --team) params+=("team=$2"); shift 2 ;;
+            --q) params+=("q=$(url_encode "$2")"); shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local query=$(build_query "${params[@]}")
+    [[ -n "$query" ]] && query="?$query"
+    api_get "/chat/v2/board/${query}"
+}
+
+cmd_chat_teams() {
+    local params=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --limit) params+=("limit=$2"); shift 2 ;;
+            --offset) params+=("offset=$2"); shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local query=$(build_query "${params[@]}")
+    [[ -n "$query" ]] && query="?$query"
+    api_get "/chat/v2/teams/${query}"
+}
+
 # === GENERIC ===
 
 cmd_get() {
@@ -606,6 +753,23 @@ show_help() {
     echo "  orgs [--q QUERY]                   List organizations in current instance"
     echo "  find-org <name>                    Search org by name across ALL instances"
     echo ""
+    echo "CHAT:"
+    echo "  chats [--q QUERY] [--related-type TYPE] [--related-id ID]"
+    echo "  chat <id>                          Get chat details"
+    echo "  chat-create <json>                 Create chat"
+    echo "  chat-update <id> <json>            Update chat title"
+    echo "  chat-messages <id> [--limit N]     Get chat messages"
+    echo "  chat-send <id> <message>           Send text message"
+    echo "  chat-send-json <id> <json>         Send message with JSON"
+    echo "  chat-mark-read <id>                Mark chat as read"
+    echo "  chat-add-participant <id> <json>   Add participant"
+    echo "  chat-remove-participant <id> <json> Remove participant"
+    echo "  chat-close <id>                    Close chat"
+    echo "  chat-reopen <id>                   Reopen chat"
+    echo "  chat-unread-counts                 Get unread counts"
+    echo "  chat-board [--team ID] [--q QUERY] Get chat board"
+    echo "  chat-teams [--limit N]             List chat teams"
+    echo ""
     echo "GENERIC (for any endpoint):"
     echo "  get <endpoint>                     GET request"
     echo "  post <endpoint> [json]             POST request"
@@ -653,5 +817,21 @@ case "$1" in
     delete) cmd_delete "$2" ;;
     orgs) shift; cmd_orgs "$@" ;;
     find-org) cmd_find_org "$2" ;;
+    chats) shift; cmd_chats "$@" ;;
+    chat) cmd_chat "$2" ;;
+    chat-create) cmd_chat_create "$2" ;;
+    chat-update) cmd_chat_update "$2" "$3" ;;
+    chat-messages) shift; cmd_chat_messages "$@" ;;
+    chat-send) cmd_chat_send "$2" "$3" ;;
+    chat-send-json) cmd_chat_send_json "$2" "$3" ;;
+    chat-mark-read) cmd_chat_mark_read "$2" ;;
+    chat-add-participant) cmd_chat_add_participant "$2" "$3" ;;
+    chat-remove-participant) cmd_chat_remove_participant "$2" "$3" ;;
+    chat-close) cmd_chat_close "$2" ;;
+    chat-reopen) cmd_chat_reopen "$2" ;;
+    chat-unread-counts) cmd_chat_unread_counts ;;
+    chat-board) shift; cmd_chat_board "$@" ;;
+    chat-teams) shift; cmd_chat_teams "$@" ;;
+    help) show_help ;;
     *) show_help; exit 1 ;;
 esac
