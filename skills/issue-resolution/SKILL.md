@@ -129,6 +129,8 @@ Format: `feature/SYT-{id}-{short-description}`
 
 ### 9. Implementation + PR
 
+Once approved, execute without interruption:
+
 1. Implement according to approved plan
 2. Use `/commit` skill to commit
 3. Use `/pr` skill to create PR
@@ -137,6 +139,8 @@ PR must include:
 - Linear issue link (always)
 - Sentry issue link (if applicable)
 - Apply assignment rules from step 7
+
+**Do not ask for confirmation during this phase.** Complete all steps, then report.
 
 ### 10. Safe Stop Conditions
 
@@ -149,16 +153,13 @@ Push back politely: "I need a bit more context to fix this safely. Can you tell 
 
 ---
 
-## Output Checklist
+## Final Summary
 
-After completing the workflow, report:
+After completing the workflow, provide a **brief summary** with relevant links:
 
-- [ ] Investigation summary + proposed solution
-- [ ] Confirmation status (approved / not approved)
-- [ ] Linear issue (existing / created) + link
-- [ ] Sentry↔Linear association (if applicable)
-- [ ] Branch name
-- [ ] PR link + assignee
-- [ ] Requester attribution (if non-dev)
-- [ ] Skills used (which ones, for what)
-- [ ] Next steps (if any remain)
+- What was fixed (1-2 sentences)
+- PR link
+- Linear issue link
+- Sentry issue link (if applicable)
+
+Keep it concise. No checklists or verbose reports.
