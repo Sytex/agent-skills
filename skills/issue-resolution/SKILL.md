@@ -1,8 +1,6 @@
 ---
 name: issue-resolution
 description: End-to-end workflow for resolving/fixing problems/bugs. Use when someone reports an issue, error, bug, or problem - whether it comes with a Sentry link, Linear issue, both, or neither.
-context: fork
-agent: general-purpose
 ---
 
 # Issue Resolution Workflow (MANDATORY)
