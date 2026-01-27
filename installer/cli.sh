@@ -9,6 +9,31 @@ SKILLS_DIR="$(dirname "$SCRIPT_DIR")/skills"
 BIN_DIR="$SCRIPT_DIR/bin"
 GUM_VERSION="0.14.5"
 
+# Provider configuration
+CONFIG_DIR="$HOME/.agent-skills"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+
+# Available providers (bash 3.2 compatible)
+PROVIDERS="claude codex gemini"
+
+get_provider_name() {
+    case "$1" in
+        claude) echo "Claude Code" ;;
+        codex) echo "Codex CLI" ;;
+        gemini) echo "Gemini CLI" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+get_provider_default_path() {
+    case "$1" in
+        claude) echo "$HOME/.claude/skills" ;;
+        codex) echo "$HOME/.codex/skills" ;;
+        gemini) echo "$HOME/.gemini/skills" ;;
+        *) echo "" ;;
+    esac
+}
+
 # Colors for fallback mode
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -245,6 +270,237 @@ spin() {
 }
 
 # ============================================================================
+# Provider Functions
+# ============================================================================
+
+# Initialize config directory
+init_config() {
+    mkdir -p "$CONFIG_DIR"
+    [[ -f "$CONFIG_FILE" ]] || echo '{"providers":{}}' > "$CONFIG_FILE"
+}
+
+# Get enabled providers as newline-separated list
+get_enabled_providers() {
+    init_config
+    python3 -c "
+import json
+with open('$CONFIG_FILE') as f:
+    data = json.load(f)
+for name, info in data.get('providers', {}).items():
+    if info.get('enabled', False):
+        print(name)
+"
+}
+
+# Get provider path
+get_provider_path() {
+    local provider="$1"
+    init_config
+    python3 -c "
+import json
+with open('$CONFIG_FILE') as f:
+    data = json.load(f)
+path = data.get('providers', {}).get('$provider', {}).get('path', '')
+print(path)
+"
+}
+
+# Check if any provider is enabled
+has_enabled_providers() {
+    local count
+    count=$(get_enabled_providers | wc -l | tr -d ' ')
+    [[ "$count" -gt 0 ]]
+}
+
+# Add or update a provider
+set_provider() {
+    local provider="$1"
+    local enabled="$2"
+    local path="$3"
+
+    init_config
+    python3 -c "
+import json
+with open('$CONFIG_FILE', 'r') as f:
+    data = json.load(f)
+if 'providers' not in data:
+    data['providers'] = {}
+data['providers']['$provider'] = {'enabled': $enabled, 'path': '$path'}
+with open('$CONFIG_FILE', 'w') as f:
+    json.dump(data, f, indent=2)
+"
+}
+
+# Remove a provider
+remove_provider() {
+    local provider="$1"
+
+    init_config
+    python3 -c "
+import json
+with open('$CONFIG_FILE', 'r') as f:
+    data = json.load(f)
+data.get('providers', {}).pop('$provider', None)
+with open('$CONFIG_FILE', 'w') as f:
+    json.dump(data, f, indent=2)
+"
+}
+
+# Get selected provider for viewing
+get_selected_provider() {
+    init_config
+    local selected
+    selected=$(python3 -c "
+import json
+with open('$CONFIG_FILE') as f:
+    data = json.load(f)
+print(data.get('selected_provider', ''))
+")
+    # If no selection or selection is not enabled, return first enabled
+    if [[ -z "$selected" ]] || [[ -z "$(get_provider_path "$selected")" ]]; then
+        selected=$(get_enabled_providers | head -1)
+    fi
+    echo "$selected"
+}
+
+# Set selected provider for viewing
+set_selected_provider() {
+    local provider="$1"
+    init_config
+    python3 -c "
+import json
+with open('$CONFIG_FILE', 'r') as f:
+    data = json.load(f)
+data['selected_provider'] = '$provider'
+with open('$CONFIG_FILE', 'w') as f:
+    json.dump(data, f, indent=2)
+"
+}
+
+# Update skills from git repository
+update_skills() {
+    local repo_dir
+    repo_dir=$(dirname "$SKILLS_DIR")
+
+    echo "Pulling latest changes..."
+    if git -C "$repo_dir" pull; then
+        style green "Skills updated successfully"
+    else
+        style red "Failed to update skills"
+    fi
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
+# Show provider management menu
+manage_providers() {
+    while true; do
+        header "Manage Providers"
+
+        echo -e "${DIM}Skills will be installed to all enabled providers.${NC}"
+        echo ""
+
+        # Show current providers
+        local has_providers=false
+        for provider in $PROVIDERS; do
+            local name="$(get_provider_name "$provider")"
+            local path
+            path=$(get_provider_path "$provider")
+
+            if [[ -n "$path" ]]; then
+                has_providers=true
+                echo -e "  ${GREEN}✓${NC} $name"
+                echo -e "    ${DIM}$path${NC}"
+            fi
+        done
+
+        if [[ "$has_providers" == "false" ]]; then
+            echo -e "  ${YELLOW}No providers configured${NC}"
+        fi
+        echo ""
+
+        # Build menu options
+        local options=()
+        for provider in claude codex gemini; do
+            local name="$(get_provider_name "$provider")"
+            local path
+            path=$(get_provider_path "$provider")
+
+            if [[ -z "$path" ]]; then
+                options+=("Add $name")
+            else
+                options+=("Remove $name")
+            fi
+        done
+        options+=("Back")
+
+        local action
+        action=$(choose "Select action:" "${options[@]}")
+
+        case "$action" in
+            "Add Claude Code")
+                set_provider "claude" "true" "$(get_provider_default_path "claude")"
+                style green "Added Claude Code"
+                ;;
+            "Add Codex CLI")
+                set_provider "codex" "true" "$(get_provider_default_path "codex")"
+                style green "Added Codex CLI"
+                ;;
+            "Add Gemini CLI")
+                set_provider "gemini" "true" "$(get_provider_default_path "gemini")"
+                style green "Added Gemini CLI"
+                ;;
+            "Remove Claude Code")
+                remove_provider "claude"
+                style yellow "Removed Claude Code"
+                ;;
+            "Remove Codex CLI")
+                remove_provider "codex"
+                style yellow "Removed Codex CLI"
+                ;;
+            "Remove Gemini CLI")
+                remove_provider "gemini"
+                style yellow "Removed Gemini CLI"
+                ;;
+            "Back")
+                break
+                ;;
+        esac
+
+        echo ""
+        read -p "Press Enter to continue..."
+    done
+}
+
+# Switch provider view menu
+# Prompt to configure providers if none are set
+ensure_providers() {
+    if ! has_enabled_providers; then
+        header "Welcome to Agent Skills"
+
+        echo "No providers configured yet."
+        echo "Select which AI coding agents you use:"
+        echo ""
+
+        for provider in claude codex gemini; do
+            local name="$(get_provider_name "$provider")"
+            if confirm "Enable $name?"; then
+                set_provider "$provider" "true" "$(get_provider_default_path "$provider")"
+                style green "Added $name"
+            fi
+        done
+
+        echo ""
+
+        if ! has_enabled_providers; then
+            style yellow "No providers selected. You can add them later from the menu."
+            echo ""
+            read -p "Press Enter to continue..."
+        fi
+    fi
+}
+
+# ============================================================================
 # Skill Functions
 # ============================================================================
 
@@ -298,12 +554,22 @@ with open('$file') as f:
 "
 }
 
-# Get install path for a skill
+# Get install path for a skill (for a specific provider)
 get_install_path() {
     local skill="$1"
-    local path
-    path=$(read_json "$SKILLS_DIR/$skill/skill.json" "install_path")
-    echo "${path/#\~/$HOME}"
+    local provider="$2"
+    local base_path
+    base_path=$(get_provider_path "$provider")
+    echo "$base_path/$skill"
+}
+
+# Get primary install path (first enabled provider, for config storage)
+get_primary_install_path() {
+    local skill="$1"
+    local provider
+    provider=$(get_enabled_providers | head -1)
+    [[ -z "$provider" ]] && return 1
+    get_install_path "$skill" "$provider"
 }
 
 # Check if skill requires configuration
@@ -314,21 +580,25 @@ skill_needs_config() {
     [[ "$field_count" -gt 0 ]]
 }
 
-# Get skill status
-get_skill_status() {
+# Get skill status for a specific provider
+get_skill_status_for_provider() {
     local skill="$1"
+    local provider="$2"
+
+    [[ -z "$provider" ]] && echo "not_installed" && return
+
     local install_path
-    install_path=$(get_install_path "$skill")
+    install_path=$(get_install_path "$skill" "$provider")
 
     if [[ ! -d "$install_path" ]]; then
         echo "not_installed"
         return
     fi
 
-    # Check if outdated (no checksum = old install, treat as outdated)
     local repo_checksum
     repo_checksum=$(compute_skill_checksum "$skill")
 
+    # Check if outdated
     if [[ ! -f "$install_path/.checksum" ]]; then
         echo "outdated"
         return
@@ -341,17 +611,24 @@ get_skill_status() {
         return
     fi
 
-    # Skills without fields are "configured" once installed
-    if ! skill_needs_config "$skill"; then
-        echo "configured"
-        return
-    fi
-
-    if [[ ! -f "$install_path/.env" ]]; then
-        echo "installed"
+    # Check if configured (has credentials)
+    if skill_needs_config "$skill"; then
+        if [[ -f "$install_path/.credentials" ]]; then
+            echo "configured"
+        else
+            echo "installed"
+        fi
     else
         echo "configured"
     fi
+}
+
+# Get skill status for the selected provider (legacy, uses first enabled)
+get_skill_status() {
+    local skill="$1"
+    local provider
+    provider=$(get_enabled_providers | head -1)
+    get_skill_status_for_provider "$skill" "$provider"
 }
 
 # Show skill info
@@ -359,35 +636,37 @@ show_skill_info() {
     local skill="$1"
     local skill_json="$SKILLS_DIR/$skill/skill.json"
 
-    local title description version install_path status
+    local title description version
     title=$(read_json "$skill_json" "title")
     description=$(read_json "$skill_json" "description")
     version=$(read_json "$skill_json" "version")
-    install_path=$(get_install_path "$skill")
-    status=$(get_skill_status "$skill")
 
     header "$title"
 
     echo -e "${DIM}$description${NC}"
     echo ""
-    echo -e "Version:  ${BOLD}$version${NC}"
-    echo -e "Path:     ${DIM}$install_path${NC}"
-    echo -n "Status:   "
+    echo -e "Version: ${BOLD}$version${NC}"
+    echo ""
 
-    case "$status" in
-        not_installed)
-            style yellow "Not installed"
-            ;;
-        installed)
-            style cyan "Installed (needs configuration)"
-            ;;
-        configured)
-            style green "Configured"
-            ;;
-        outdated)
-            style yellow "Update available"
-            ;;
-    esac
+    # Show status for each enabled provider
+    echo "Installation:"
+    while IFS= read -r provider; do
+        local pname pstatus path
+        pname=$(get_provider_name "$provider")
+        pstatus=$(get_skill_status_for_provider "$skill" "$provider")
+        path=$(get_install_path "$skill" "$provider")
+
+        local status_color status_text
+        case "$pstatus" in
+            not_installed) status_color="$YELLOW"; status_text="not installed" ;;
+            installed) status_color="$CYAN"; status_text="needs config" ;;
+            configured) status_color="$GREEN"; status_text="ready" ;;
+            outdated) status_color="$YELLOW"; status_text="update available" ;;
+        esac
+
+        echo -e "  ${CYAN}$pname${NC}: ${status_color}$status_text${NC}"
+        echo -e "    ${DIM}$path${NC}"
+    done < <(get_enabled_providers)
     echo ""
 }
 
@@ -399,44 +678,40 @@ skill_has_test() {
     [[ -n "$test_cmd" ]]
 }
 
-# Get available actions for a skill
+# Get available actions for a skill (per provider)
 get_actions() {
-    local status="$1"
-    local skill="$2"
+    local skill="$1"
 
-    case "$status" in
-        not_installed)
-            echo "Install"
-            echo "Back"
-            ;;
-        installed)
-            echo "Connect"
-            echo "Uninstall"
-            echo "Back"
-            ;;
-        configured)
-            skill_has_test "$skill" && echo "Test"
-            skill_needs_config "$skill" && echo "Edit credentials"
-            echo "Uninstall"
-            echo "Back"
-            ;;
-        outdated)
-            echo "Update"
-            skill_has_test "$skill" && echo "Test"
-            skill_needs_config "$skill" && echo "Edit credentials"
-            echo "Uninstall"
-            echo "Back"
-            ;;
-    esac
+    # Add per-provider actions
+    while IFS= read -r provider; do
+        [[ -z "$provider" ]] && continue
+        local pname pstatus
+        pname=$(get_provider_name "$provider")
+        pstatus=$(get_skill_status_for_provider "$skill" "$provider")
+
+        case "$pstatus" in
+            not_installed) echo "Install in $pname" ;;
+            outdated) echo "Update in $pname" ;;
+            *) echo "Remove from $pname" ;;
+        esac
+    done < <(get_enabled_providers)
+
+    echo "─────────────"
+
+    # Global actions
+    skill_has_test "$skill" && echo "Test"
+    skill_needs_config "$skill" && echo "Edit credentials"
+    echo "Back"
 }
 
-# Install skill files
-install_files() {
+# Install skill files to a single provider
+install_files_to_provider() {
     local skill="$1"
+    local provider="$2"
     local skill_dir="$SKILLS_DIR/$skill"
     local skill_json="$skill_dir/skill.json"
     local install_path
-    install_path=$(get_install_path "$skill")
+    install_path=$(get_install_path "$skill" "$provider")
 
     mkdir -p "$install_path"
 
@@ -461,14 +736,35 @@ install_files() {
 
     # Save checksum
     compute_skill_checksum "$skill" > "$install_path/.checksum"
+
+    # Copy central .env if exists
+    local central_env="$CONFIG_DIR/$skill/.env"
+    if [[ -f "$central_env" ]]; then
+        cp "$central_env" "$install_path/.env"
+        chmod 600 "$install_path/.env"
+    fi
+}
+
+# Install skill files to all enabled providers
+install_files() {
+    local skill="$1"
+
+    while IFS= read -r provider; do
+        [[ -z "$provider" ]] && continue
+        local name="$(get_provider_name "$provider")"
+        echo -e "  Installing to ${CYAN}$name${NC}..."
+        install_files_to_provider "$skill" "$provider"
+    done < <(get_enabled_providers)
 }
 
 # Configure skill credentials
 configure_skill() {
     local skill="$1"
     local skill_json="$SKILLS_DIR/$skill/skill.json"
-    local install_path
-    install_path=$(get_install_path "$skill")
+    local primary_path
+    primary_path=$(get_primary_install_path "$skill")
+
+    [[ -z "$primary_path" ]] && style red "No providers configured" && return 1
 
     local setup_instructions
     setup_instructions=$(read_json "$skill_json" "setup_instructions")
@@ -511,8 +807,8 @@ configure_skill() {
 
         # Get existing value if reconfiguring
         local existing=""
-        if [[ -f "$install_path/.env" ]]; then
-            existing=$(grep "^$env_var=" "$install_path/.env" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
+        if [[ -f "$primary_path/.env" ]]; then
+            existing=$(grep "^$env_var=" "$primary_path/.env" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
         fi
 
         # Input value
@@ -541,11 +837,23 @@ configure_skill() {
         echo ""
     done
 
-    # Write .env file
-    echo -e "$env_content" > "$install_path/.env"
-    chmod 600 "$install_path/.env"
+    # Save to central location
+    local central_dir="$CONFIG_DIR/$skill"
+    mkdir -p "$central_dir"
+    echo -e "$env_content" > "$central_dir/.env"
+    chmod 600 "$central_dir/.env"
 
-    style green "Configuration saved to $install_path/.env"
+    # Sync to all installed providers
+    while IFS= read -r provider; do
+        [[ -z "$provider" ]] && continue
+        local install_path
+        install_path=$(get_install_path "$skill" "$provider")
+        [[ -d "$install_path" ]] || continue
+        cp "$central_dir/.env" "$install_path/.env"
+        chmod 600 "$install_path/.env"
+    done < <(get_enabled_providers)
+
+    style green "Configuration saved"
 }
 
 # Test skill
@@ -553,7 +861,9 @@ test_skill() {
     local skill="$1"
     local skill_json="$SKILLS_DIR/$skill/skill.json"
     local install_path
-    install_path=$(get_install_path "$skill")
+    install_path=$(get_primary_install_path "$skill")
+
+    [[ -z "$install_path" ]] && style red "No providers configured" && return 1
 
     local test_cmd
     test_cmd=$(read_json "$skill_json" "test_command")
@@ -584,14 +894,35 @@ test_skill() {
 }
 
 
-# Uninstall skill
+# Uninstall skill from a specific provider
+uninstall_from_provider() {
+    local skill="$1"
+    local provider="$2"
+    local install_path
+    install_path=$(get_install_path "$skill" "$provider")
+
+    [[ -d "$install_path" ]] && rm -rf "$install_path"
+}
+
+# Uninstall skill from all providers
 uninstall_skill() {
     local skill="$1"
-    local install_path
-    install_path=$(get_install_path "$skill")
+    local any_uninstalled=false
 
-    if [[ -d "$install_path" ]]; then
-        rm -rf "$install_path"
+    while IFS= read -r provider; do
+        [[ -z "$provider" ]] && continue
+        local name="$(get_provider_name "$provider")"
+        local install_path
+        install_path=$(get_install_path "$skill" "$provider")
+
+        if [[ -d "$install_path" ]]; then
+            rm -rf "$install_path"
+            echo -e "  Removed from ${CYAN}$name${NC}"
+            any_uninstalled=true
+        fi
+    done < <(get_enabled_providers)
+
+    if [[ "$any_uninstalled" == "true" ]]; then
         style green "Skill uninstalled"
     else
         style yellow "Skill not installed"
@@ -653,26 +984,72 @@ main_menu() {
     while true; do
         header "Agent Skills Installer"
 
-        # Build skill list with status
+        # Get all skills info in a single python call
         local skills=()
         local skill_options=()
-        while IFS= read -r skill; do
-            skills+=("$skill")
-            local status title
-            status=$(get_skill_status "$skill")
-            title=$(read_json "$SKILLS_DIR/$skill/skill.json" "title")
+        local all_skills_info
+        all_skills_info=$(python3 -c "
+import json, hashlib
+from pathlib import Path
 
-            local status_text
-            case "$status" in
-                not_installed) status_text="(not installed)" ;;
-                installed) status_text="(needs setup)" ;;
-                configured) status_text="(ready)" ;;
-                outdated) status_text="(update available)" ;;
-            esac
+skills_dir = Path('$SKILLS_DIR')
+config_file = Path.home() / '.agent-skills' / 'config.json'
 
-            skill_options+=("$title $status_text")
-        done < <(get_skills)
+with open(config_file) as f:
+    config = json.load(f)
 
+providers = [(p, info.get('path', '')) for p, info in config.get('providers', {}).items() if info.get('enabled')]
+
+for skill_dir in sorted(skills_dir.iterdir()):
+    skill_json = skill_dir / 'skill.json'
+    if not skill_json.exists():
+        continue
+
+    with open(skill_json) as f:
+        data = json.load(f)
+
+    title = data.get('title', skill_dir.name)
+    skill_id = skill_dir.name
+
+    # Compute repo checksum
+    hasher = hashlib.sha256()
+    for file_spec in sorted(data.get('files', [])):
+        src = file_spec.split(':')[0] if ':' in file_spec else file_spec
+        src_path = skill_dir / src
+        if src_path.exists():
+            hasher.update(src_path.read_bytes())
+    repo_checksum = hasher.hexdigest()[:16]
+
+    # Check status for each provider
+    badges = ''
+    for p, base_path in providers:
+        name = {'claude': 'Claude', 'codex': 'Codex', 'gemini': 'Gemini'}.get(p, p)
+        install_path = Path(base_path) / skill_id if base_path else None
+
+        if not install_path or not install_path.is_dir():
+            badges += f'[· {name}] '
+            continue
+
+        checksum_file = install_path / '.checksum'
+        if not checksum_file.exists() or checksum_file.read_text().strip() != repo_checksum:
+            badges += f'[↑ {name}] '
+            continue
+
+        badges += f'[✓ {name}] '
+
+    print(f'{skill_id}|{title}|{badges.strip()}')
+")
+
+        local titles=()
+        while IFS='|' read -r skill_id title badges; do
+            skills+=("$skill_id")
+            titles+=("$title")
+            [[ -n "$badges" ]] && skill_options+=("$title  $badges") || skill_options+=("$title")
+        done <<< "$all_skills_info"
+
+        skill_options+=("─────────────")
+        skill_options+=("Update Skills")
+        skill_options+=("Manage Providers")
         skill_options+=("Exit")
 
         # Choose skill
@@ -680,16 +1057,16 @@ main_menu() {
         choice=$(choose "Select a skill:" "${skill_options[@]}")
 
         [[ "$choice" == "Exit" || "$choice" == "Back" ]] && break
+        [[ "$choice" == "Update Skills" ]] && { update_skills; continue; }
+        [[ "$choice" == "Manage Providers" ]] && { manage_providers; continue; }
+        [[ "$choice" == "─────────────" ]] && continue
 
-        # Extract skill name from choice (remove status text in parentheses)
-        local skill_title="${choice%% (*}"
-        skill_title="${skill_title% }"  # trim trailing space
+        # Extract skill name from choice (remove badges after double space)
+        local skill_title="${choice%%  \[*}"
         local selected_skill=""
-        for skill in "${skills[@]}"; do
-            local title
-            title=$(read_json "$SKILLS_DIR/$skill/skill.json" "title")
-            if [[ "$title" == "$skill_title" ]]; then
-                selected_skill="$skill"
+        for i in "${!titles[@]}"; do
+            if [[ "${titles[$i]}" == "$skill_title" ]]; then
+                selected_skill="${skills[$i]}"
                 break
             fi
         done
@@ -706,24 +1083,27 @@ skill_menu() {
     while true; do
         show_skill_info "$skill"
 
-        local status
-        status=$(get_skill_status "$skill")
-
         local actions=()
         while IFS= read -r action; do
             actions+=("$action")
-        done < <(get_actions "$status" "$skill")
+        done < <(get_actions "$skill")
 
         local action
         action=$(choose "Select action:" "${actions[@]}")
 
         case "$action" in
-            "Install") do_install "$skill" ;;
-            "Update") do_update "$skill" ;;
-            "Connect") do_configure "$skill" ;;
+            "Install in Claude Code") install_files_to_provider "$skill" "claude"; style green "Installed in Claude Code" ;;
+            "Install in Codex CLI") install_files_to_provider "$skill" "codex"; style green "Installed in Codex CLI" ;;
+            "Install in Gemini CLI") install_files_to_provider "$skill" "gemini"; style green "Installed in Gemini CLI" ;;
+            "Update in Claude Code") install_files_to_provider "$skill" "claude"; style green "Updated in Claude Code" ;;
+            "Update in Codex CLI") install_files_to_provider "$skill" "codex"; style green "Updated in Codex CLI" ;;
+            "Update in Gemini CLI") install_files_to_provider "$skill" "gemini"; style green "Updated in Gemini CLI" ;;
+            "Remove from Claude Code") uninstall_from_provider "$skill" "claude"; style yellow "Removed from Claude Code" ;;
+            "Remove from Codex CLI") uninstall_from_provider "$skill" "codex"; style yellow "Removed from Codex CLI" ;;
+            "Remove from Gemini CLI") uninstall_from_provider "$skill" "gemini"; style yellow "Removed from Gemini CLI" ;;
             "Test") do_test "$skill" ;;
             "Edit credentials") do_configure "$skill" ;;
-            "Uninstall") do_uninstall "$skill" ;;
+            "─────────────") continue ;;
             "Back") break ;;
         esac
 
@@ -735,6 +1115,10 @@ skill_menu() {
 # ============================================================================
 # Entry Point
 # ============================================================================
+
+# Initialize and ensure providers are configured
+init_config
+ensure_providers
 
 if [[ $# -eq 0 ]]; then
     main_menu

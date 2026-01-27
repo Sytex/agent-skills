@@ -366,6 +366,218 @@
             overflow: auto;
         }
 
+        /* Providers bar */
+        .providers-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .providers-bar-label {
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            margin-right: 0.5rem;
+        }
+
+        .provider-chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.35rem 0.75rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            font-size: 0.8rem;
+            color: var(--text);
+        }
+
+        .add-provider-btn {
+            padding: 0.35rem 0.75rem;
+            background: none;
+            border: 1px dashed var(--border);
+            border-radius: 999px;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+
+        .add-provider-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .no-providers-warning {
+            background: rgba(234, 179, 8, 0.15);
+            border: 1px solid rgba(234, 179, 8, 0.3);
+            color: var(--yellow);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+
+        /* Provider badges on skill cards */
+        .skill-providers {
+            display: flex;
+            gap: 0.35rem;
+            margin-top: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .provider-badge {
+            font-size: 0.65rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+
+        .provider-badge.installed {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--green);
+        }
+
+        .provider-badge.outdated {
+            background: rgba(234, 179, 8, 0.15);
+            color: var(--yellow);
+        }
+
+        .provider-badge.not-installed {
+            background: rgba(100, 100, 100, 0.15);
+            color: #666;
+        }
+
+        /* Provider toggles in modal */
+        .provider-toggles {
+            margin-bottom: 1.5rem;
+        }
+
+        .provider-toggles-label {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            margin-bottom: 0.75rem;
+        }
+
+        .provider-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+        }
+
+        .provider-toggle-info {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .provider-toggle-name {
+            font-weight: 500;
+        }
+
+        .provider-toggle-status {
+            font-size: 0.75rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+        }
+
+        .provider-toggle-status.installed {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--green);
+        }
+
+        .provider-toggle-status.outdated {
+            background: rgba(234, 179, 8, 0.15);
+            color: var(--yellow);
+        }
+
+        .provider-toggle-status.not-installed {
+            background: rgba(100, 100, 100, 0.15);
+            color: #888;
+        }
+
+        .provider-toggle-btn {
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            border: none;
+            font-weight: 500;
+        }
+
+        .provider-toggle-btn.install {
+            background: var(--accent);
+            color: white;
+        }
+
+        .provider-toggle-btn.install:hover {
+            background: var(--accent-hover);
+        }
+
+        .provider-toggle-btn.uninstall {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+        }
+
+        .provider-toggle-btn.uninstall:hover {
+            border-color: var(--red);
+            color: var(--red);
+        }
+
+        .provider-toggle-btn.update {
+            background: #ca8a04;
+            color: white;
+        }
+
+        /* Header with update button */
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .header-title {
+            font-size: 2rem;
+            font-weight: 600;
+        }
+
+        .update-btn {
+            padding: 0.5rem 1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .update-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .update-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .update-btn .icon {
+            font-size: 1rem;
+        }
+
         /* Toast */
         .toast {
             position: fixed;
@@ -420,8 +632,12 @@
 <body>
     <div class="container">
         <header>
-            <h1>Agent Skills Installer</h1>
-            <p>Install and configure skills for AI coding agents</p>
+            <div class="header-content">
+                <h1 class="header-title">Agent Skills Installer</h1>
+                <button class="update-btn" onclick="updateRepo()" id="update-btn" style="display:none">
+                    Download last changes
+                </button>
+            </div>
         </header>
 
         <div class="skills-grid" id="skills-grid">
@@ -445,13 +661,85 @@
     <script>
         const API = '/api';
         let skills = [];
+        let providers = [];
         let currentSkill = null;
+
+        // Load providers
+        async function loadProviders() {
+            const response = await fetch(`${API}/providers`);
+            providers = await response.json();
+        }
+
+        // Check for updates
+        async function checkForUpdates() {
+            const btn = document.getElementById('update-btn');
+            const response = await fetch(`${API}/check-updates`).catch(() => null);
+            if (!response) return;
+
+            const result = await response.json().catch(() => null);
+            if (!result) return;
+
+            btn.style.display = result.has_updates ? 'flex' : 'none';
+        }
+
+        // Update repo (git pull)
+        async function updateRepo() {
+            const btn = document.getElementById('update-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span> Downloading...';
+
+            const response = await fetch(`${API}/update`, { method: 'POST' }).catch(() => null);
+
+            if (!response) {
+                btn.disabled = false;
+                btn.innerHTML = 'Download last changes';
+                showToast('Could not connect to server', 'error');
+                return;
+            }
+
+            const result = await response.json().catch(() => ({ success: false, error: 'Failed to download changes' }));
+
+            btn.disabled = false;
+            btn.innerHTML = 'Download last changes';
+
+            if (result.success) {
+                showToast(result.message || 'Skills updated');
+                btn.style.display = 'none';
+                await loadSkills();
+            } else {
+                showToast(result.error, 'error');
+            }
+        }
 
         // Load skills
         async function loadSkills() {
             const response = await fetch(`${API}/skills`);
             skills = await response.json();
             renderSkills();
+        }
+
+        // Get short provider name
+        function shortProviderName(providerId) {
+            switch(providerId) {
+                case 'claude': return 'Claude';
+                case 'codex': return 'Codex';
+                case 'gemini': return 'Gemini';
+                default: return providerId;
+            }
+        }
+
+        // Render provider badges for a skill
+        function renderProviderBadges(skill) {
+            const enabledProviders = providers.filter(p => p.enabled);
+            if (enabledProviders.length === 0) return '';
+
+            const badges = enabledProviders.map(p => {
+                const status = skill.provider_status?.[p.id] || 'not_installed';
+                const cssClass = status === 'configured' || status === 'installed' ? 'installed' : status.replace('_', '-');
+                return `<span class="provider-badge ${cssClass}">${shortProviderName(p.id)}</span>`;
+            }).join('');
+
+            return `<div class="skill-providers">${badges}</div>`;
         }
 
         // Render skills grid
@@ -465,6 +753,7 @@
                     </div>
                     <div class="skill-description">${skill.description}</div>
                     <div class="skill-meta">v${skill.version}</div>
+                    ${renderProviderBadges(skill)}
                 </div>
             `).join('');
         }
@@ -504,115 +793,109 @@
             if (e.key === 'Escape') closeModal();
         });
 
+        // Render provider toggles section
+        function renderProviderToggles(skill) {
+            const enabledProviders = providers.filter(p => p.enabled);
+            if (enabledProviders.length === 0) return '';
+
+            let html = '<div class="provider-toggles">';
+            html += '<div class="provider-toggles-label">Install in:</div>';
+
+            for (const p of enabledProviders) {
+                const status = skill.provider_status?.[p.id] || 'not_installed';
+                const statusLabel = status === 'installed' || status === 'configured' ? 'Installed' : status === 'outdated' ? 'Update available' : 'Not installed';
+                const statusClass = status === 'configured' ? 'installed' : status.replace('_', '-');
+
+                let btnHtml = '';
+                if (status === 'not_installed') {
+                    btnHtml = `<button class="provider-toggle-btn install" onclick="installToProvider('${p.id}')">Install</button>`;
+                } else if (status === 'outdated') {
+                    btnHtml = `<button class="provider-toggle-btn update" onclick="updateInProvider('${p.id}')">Update</button>`;
+                } else {
+                    btnHtml = `<button class="provider-toggle-btn uninstall" onclick="uninstallFromProvider('${p.id}')">Remove</button>`;
+                }
+
+                html += `
+                    <div class="provider-toggle">
+                        <div class="provider-toggle-info">
+                            <span class="provider-toggle-name">${p.name}</span>
+                            <span class="provider-toggle-status ${statusClass}">${statusLabel}</span>
+                        </div>
+                        ${btnHtml}
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+            return html;
+        }
+
         // Render modal content
         function renderModal() {
             const skill = currentSkill;
-            document.getElementById('modal-title').innerHTML = `${skill.title} <span class="skill-badge badge-${skill.status.replace('_', '-')}" style="font-size:0.6em;vertical-align:middle;margin-left:0.5rem">${formatStatus(skill.status)}</span>`;
+            document.getElementById('modal-title').innerHTML = skill.title;
 
             let html = '';
+            html += `<p style="color:var(--text-dim);margin-bottom:1.5rem">${skill.description}</p>`;
+
+            // Always show provider toggles
+            html += renderProviderToggles(skill);
 
             const hasFields = (skill.fields || []).length > 0;
+            const isInstalledAnywhere = Object.values(skill.provider_status || {}).some(s => s !== 'not_installed');
 
-            // Not installed - show install button prominently
-            if (skill.status === 'not_installed') {
-                html += `
-                    <p style="color:var(--text-dim);margin-bottom:1.5rem">${skill.description}</p>
-                    <button class="btn btn-primary" onclick="installSkill()" style="width:100%;padding:1rem;font-size:1.1rem">Install ${skill.title}</button>
-                `;
-                document.getElementById('modal-body').innerHTML = html;
-                return;
-            }
+            // Show config form only if installed somewhere and has fields
+            if (isInstalledAnywhere && hasFields) {
+                const needsConfig = !skill.config || Object.keys(skill.config).length === 0;
+                const actionText = needsConfig ? 'Configure credentials:' : 'Update credentials:';
+                html += `<div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)">`;
+                html += `<p style="color:var(--text-dim);margin-bottom:1rem">${actionText}</p>`;
 
-            // Outdated - show update button prominently
-            if (skill.status === 'outdated') {
-                html += `
-                    <p style="color:var(--text-dim);margin-bottom:1.5rem">${skill.description}</p>
-                    <div class="alert alert-info">A new version is available. Your credentials will be preserved.</div>
-                    <button class="btn btn-primary" onclick="updateSkill()" style="width:100%;padding:1rem;font-size:1.1rem">Update ${skill.title}</button>
-                    <div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)">
-                        <button class="btn btn-danger" onclick="uninstallSkill()" style="width:100%">Uninstall</button>
-                    </div>
-                `;
-                document.getElementById('modal-body').innerHTML = html;
-                return;
-            }
+                html += '<form id="config-form">';
 
-            // Configured skill without fields - just show ready state
-            if (skill.status === 'configured' && !hasFields) {
-                html += `
-                    <p style="color:var(--text-dim);margin-bottom:1.5rem">${skill.description}</p>
-                    <div class="alert alert-success">Ready to use. No configuration needed.</div>
-                    <div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)">
-                        <button class="btn btn-danger" onclick="uninstallSkill()" style="width:100%">Uninstall</button>
-                    </div>
-                `;
-                document.getElementById('modal-body').innerHTML = html;
-                return;
-            }
+                for (const field of skill.fields || []) {
+                    const value = skill.config?.[field.name] || field.default || '';
+                    const isPassword = field.type === 'password';
 
-            // Installed - show configuration form
-            const actionText = skill.status === 'installed' ? 'Complete the form below to connect' : 'Update your credentials if needed';
-            html += `<p style="color:var(--text-dim);margin-bottom:1.5rem">${actionText}</p>`;
+                    html += `<div class="form-group">`;
 
-            html += '<form id="config-form">';
+                    html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">`;
+                    html += `<label class="form-label" style="margin:0">${field.label} ${field.required ? '<span class="required">*</span>' : ''}</label>`;
+                    if (field.help || field.help_url) {
+                        html += `<button type="button" onclick="this.parentElement.nextElementSibling.open=!this.parentElement.nextElementSibling.open" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:0.85rem">How do I get this?</button>`;
+                    }
+                    html += `</div>`;
 
-            for (const field of skill.fields || []) {
-                const value = skill.config?.[field.name] || field.default || '';
-                const isPassword = field.type === 'password';
+                    if (field.help || field.help_url) {
+                        html += `<details class="field-help">`;
+                        html += `<summary style="display:none"></summary>`;
+                        html += `<div class="form-help" style="margin-bottom:0.75rem;padding:0.75rem;background:var(--bg);border-radius:6px">`;
+                        if (field.help) html += field.help;
+                        if (field.help_url) html += `<br><a href="${field.help_url}" target="_blank" style="display:inline-block;margin-top:0.5rem">Open ${skill.title} settings ↗</a>`;
+                        html += `</div></details>`;
+                    }
 
-                html += `<div class="form-group">`;
+                    html += `<input
+                        type="${isPassword ? 'password' : 'text'}"
+                        class="form-input"
+                        name="${field.name}"
+                        value="${isPassword && value ? '' : escapeHtml(value)}"
+                        placeholder="${isPassword && value ? '••••••••••••••••' : ''}"
+                        ${field.required ? 'required' : ''}
+                    >`;
 
-                // Label with help toggle
-                html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">`;
-                html += `<label class="form-label" style="margin:0">${field.label} ${field.required ? '<span class="required">*</span>' : ''}</label>`;
-                if (field.help || field.help_url) {
-                    html += `<button type="button" onclick="this.parentElement.nextElementSibling.open=!this.parentElement.nextElementSibling.open" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:0.85rem">How do I get this?</button>`;
+                    html += `</div>`;
                 }
-                html += `</div>`;
+                html += '</form>';
 
-                // Help text (collapsible)
-                if (field.help || field.help_url) {
-                    html += `<details class="field-help">`;
-                    html += `<summary style="display:none"></summary>`;
-                    html += `<div class="form-help" style="margin-bottom:0.75rem;padding:0.75rem;background:var(--bg);border-radius:6px">`;
-                    if (field.help) html += field.help;
-                    if (field.help_url) html += `<br><a href="${field.help_url}" target="_blank" style="display:inline-block;margin-top:0.5rem">Open ${skill.title} settings ↗</a>`;
-                    html += `</div></details>`;
-                }
+                html += '<div id="test-output-container" style="display:none;margin-top:1rem;"><div class="test-output" id="test-output"></div></div>';
 
-                // Input
-                html += `<input
-                    type="${isPassword ? 'password' : 'text'}"
-                    class="form-input"
-                    name="${field.name}"
-                    value="${isPassword && value ? '' : escapeHtml(value)}"
-                    placeholder="${isPassword && value ? '••••••••••••••••' : ''}"
-                    ${field.required ? 'required' : ''}
-                >`;
-
-                html += `</div>`;
-            }
-            html += '</form>';
-
-            // Test output area
-            html += '<div id="test-output-container" style="display:none;margin-top:1rem;"><div class="test-output" id="test-output"></div></div>';
-
-            // Actions - dead simple
-            html += '<div class="actions" style="margin-top:1.5rem">';
-
-            if (skill.status === 'installed') {
-                html += '<button class="btn btn-primary" onclick="saveConfig()">Connect</button>';
-            } else {
+                html += '<div class="actions" style="margin-top:1rem">';
                 html += '<button class="btn btn-primary" onclick="saveConfig()">Save</button>';
                 html += '<button class="btn btn-secondary" onclick="testSkill()">Test</button>';
+                html += '</div>';
+                html += '</div>';
             }
-
-            html += '</div>';
-
-            // Just uninstall at the bottom
-            html += '<div style="margin-top:2rem;padding-top:1rem;border-top:1px solid var(--border)">';
-            html += '<button class="btn btn-danger" onclick="uninstallSkill()" style="width:100%">Uninstall</button>';
-            html += '</div>';
 
             document.getElementById('modal-body').innerHTML = html;
         }
@@ -637,6 +920,39 @@
         async function installSkill() {
             await fetch(`${API}/skills/${currentSkill.id}/install`, { method: 'POST' });
             showToast('Skill installed');
+            await refreshSkill();
+        }
+
+        async function installToProvider(providerId) {
+            const response = await fetch(`${API}/skills/${currentSkill.id}/install/${providerId}`, { method: 'POST' }).catch(() => null);
+            if (!response || !response.ok) {
+                const result = response ? await response.json().catch(() => ({})) : {};
+                showToast(result.error || 'Failed to install', 'error');
+                return;
+            }
+            showToast('Installed');
+            await refreshSkill();
+        }
+
+        async function updateInProvider(providerId) {
+            const response = await fetch(`${API}/skills/${currentSkill.id}/install/${providerId}`, { method: 'POST' }).catch(() => null);
+            if (!response || !response.ok) {
+                const result = response ? await response.json().catch(() => ({})) : {};
+                showToast(result.error || 'Failed to update', 'error');
+                return;
+            }
+            showToast('Updated');
+            await refreshSkill();
+        }
+
+        async function uninstallFromProvider(providerId) {
+            const response = await fetch(`${API}/skills/${currentSkill.id}/uninstall/${providerId}`, { method: 'POST' }).catch(() => null);
+            if (!response || !response.ok) {
+                const result = response ? await response.json().catch(() => ({})) : {};
+                showToast(result.error || 'Failed to remove', 'error');
+                return;
+            }
+            showToast('Removed');
             await refreshSkill();
         }
 
@@ -710,7 +1026,12 @@
         }
 
         // Init
-        loadSkills();
+        async function init() {
+            await loadProviders();
+            await loadSkills();
+            await checkForUpdates();
+        }
+        init();
     </script>
 </body>
 </html>

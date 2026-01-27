@@ -17,6 +17,144 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 SKILLS_DIR = SCRIPT_DIR.parent / "skills"
 TEMPLATES_DIR = SCRIPT_DIR / "templates"
 
+# Provider configuration
+CONFIG_DIR = Path.home() / ".agent-skills"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+
+AVAILABLE_PROVIDERS = {
+    "claude": {"name": "Claude Code", "path": str(Path.home() / ".claude/skills")},
+    "codex": {"name": "Codex CLI", "path": str(Path.home() / ".codex/skills")},
+    "gemini": {"name": "Gemini CLI", "path": str(Path.home() / ".gemini/skills")},
+}
+
+
+def init_config():
+    """Initialize config directory and file."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    if not CONFIG_FILE.exists():
+        CONFIG_FILE.write_text('{"providers":{}}')
+
+
+def load_config():
+    """Load provider configuration."""
+    init_config()
+    with open(CONFIG_FILE) as f:
+        return json.load(f)
+
+
+def save_config(config):
+    """Save provider configuration."""
+    init_config()
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config, f, indent=2)
+
+
+def get_enabled_providers():
+    """Get list of enabled provider IDs."""
+    config = load_config()
+    return [
+        pid for pid, info in config.get("providers", {}).items()
+        if info.get("enabled", False)
+    ]
+
+
+def get_provider_path(provider_id):
+    """Get install path for a provider."""
+    config = load_config()
+    return config.get("providers", {}).get(provider_id, {}).get("path", "")
+
+
+def get_providers_status():
+    """Get all providers with their status."""
+    config = load_config()
+    selected = get_selected_provider()
+    result = []
+    for pid, info in AVAILABLE_PROVIDERS.items():
+        provider_config = config.get("providers", {}).get(pid, {})
+        result.append({
+            "id": pid,
+            "name": info["name"],
+            "default_path": info["path"],
+            "enabled": provider_config.get("enabled", False),
+            "path": provider_config.get("path", info["path"]),
+            "selected": pid == selected,
+        })
+    return result
+
+
+def get_selected_provider():
+    """Get the currently selected provider for viewing."""
+    config = load_config()
+    selected = config.get("selected_provider", "")
+    enabled = get_enabled_providers()
+
+    if not selected or selected not in enabled:
+        return enabled[0] if enabled else ""
+    return selected
+
+
+def set_selected_provider(provider_id):
+    """Set the selected provider for viewing."""
+    config = load_config()
+    config["selected_provider"] = provider_id
+    save_config(config)
+
+
+def set_provider(provider_id, enabled, path=None):
+    """Enable or disable a provider."""
+    config = load_config()
+    if "providers" not in config:
+        config["providers"] = {}
+
+    if path is None:
+        path = AVAILABLE_PROVIDERS.get(provider_id, {}).get("path", "")
+
+    config["providers"][provider_id] = {"enabled": enabled, "path": path}
+    save_config(config)
+
+
+def check_for_updates():
+    """Check if there are updates available in the remote repository."""
+    repo_dir = SCRIPT_DIR.parent
+
+    fetch_result = subprocess.run(
+        ["git", "fetch"],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True
+    )
+    if fetch_result.returncode != 0:
+        return {"has_updates": False, "error": fetch_result.stderr.strip()}
+
+    result = subprocess.run(
+        ["git", "status", "-uno"],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True
+    )
+    has_updates = "Your branch is behind" in result.stdout
+    return {"has_updates": has_updates}
+
+
+def update_repo():
+    """Pull latest changes from git repository."""
+    repo_dir = SCRIPT_DIR.parent
+    result = subprocess.run(
+        ["git", "pull"],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True
+    )
+    if result.returncode != 0:
+        error = result.stderr.strip() or result.stdout.strip() or "Git pull failed"
+        return {"success": False, "error": error}
+
+    output = result.stdout.strip()
+    if "Already up to date" in output:
+        return {"success": True, "message": "Already up to date"}
+    return {"success": True, "message": "Skills updated"}
+
+
 def compute_skill_checksum(skill_id, skill_data):
     """Compute checksum of skill files in the repo."""
     skill_dir = SKILLS_DIR / skill_id
@@ -31,6 +169,7 @@ def compute_skill_checksum(skill_id, skill_data):
 
     return hasher.hexdigest()[:16]
 
+
 def get_skills():
     """Get list of available skills."""
     skills = []
@@ -41,29 +180,70 @@ def get_skills():
                 data = json.load(f)
                 data["id"] = skill_dir.name
                 data["status"] = get_skill_status(skill_dir.name, data)
+                data["provider_status"] = get_skill_provider_status(skill_dir.name, data)
                 skills.append(data)
     return skills
 
-def get_install_path(skill_data):
-    """Get expanded install path."""
-    path = skill_data.get("install_path", "")
-    return os.path.expanduser(path)
+
+def get_install_path(skill_id, provider_id):
+    """Get install path for a skill in a specific provider."""
+    base_path = get_provider_path(provider_id)
+    return os.path.join(base_path, skill_id) if base_path else ""
+
+
+def get_primary_install_path(skill_id):
+    """Get install path for first enabled provider."""
+    providers = get_enabled_providers()
+    if not providers:
+        return ""
+    return get_install_path(skill_id, providers[0])
+
 
 def skill_needs_config(skill_data):
     """Check if skill requires configuration."""
     return len(skill_data.get("fields", [])) > 0
 
-def get_skill_status(skill_id, skill_data):
-    """Get installation status of a skill."""
-    install_path = get_install_path(skill_data)
 
-    if not os.path.isdir(install_path):
-        return "not_installed"
-
-    # Check if outdated (no checksum = old install, treat as outdated)
-    checksum_file = os.path.join(install_path, ".checksum")
+def get_skill_provider_status(skill_id, skill_data):
+    """Get installation status per provider."""
+    result = {}
     repo_checksum = compute_skill_checksum(skill_id, skill_data)
 
+    for provider_id in get_enabled_providers():
+        install_path = get_install_path(skill_id, provider_id)
+        if not install_path or not os.path.isdir(install_path):
+            result[provider_id] = "not_installed"
+            continue
+
+        checksum_file = os.path.join(install_path, ".checksum")
+        if not os.path.isfile(checksum_file):
+            result[provider_id] = "outdated"
+            continue
+
+        with open(checksum_file) as f:
+            installed_checksum = f.read().strip()
+        if installed_checksum != repo_checksum:
+            result[provider_id] = "outdated"
+            continue
+
+        result[provider_id] = "installed"
+
+    return result
+
+
+def get_skill_status(skill_id, skill_data):
+    """Get installation status of a skill for the selected provider."""
+    provider_id = get_selected_provider()
+    if not provider_id:
+        return "not_installed"
+
+    install_path = get_install_path(skill_id, provider_id)
+    if not install_path or not os.path.isdir(install_path):
+        return "not_installed"
+
+    repo_checksum = compute_skill_checksum(skill_id, skill_data)
+
+    checksum_file = os.path.join(install_path, ".checksum")
     if not os.path.isfile(checksum_file):
         return "outdated"
 
@@ -72,19 +252,22 @@ def get_skill_status(skill_id, skill_data):
     if installed_checksum != repo_checksum:
         return "outdated"
 
-    # Skills without fields are configured once installed
     if not skill_needs_config(skill_data):
         return "configured"
 
-    if not os.path.isfile(os.path.join(install_path, ".env")):
-        return "installed"
+    if os.path.isfile(os.path.join(install_path, ".env")):
+        return "configured"
 
-    return "configured"
+    return "installed"
 
-def install_files(skill_id, skill_data):
-    """Install skill files."""
+
+def install_files_to_provider(skill_id, skill_data, provider_id):
+    """Install skill files to a specific provider."""
     skill_dir = SKILLS_DIR / skill_id
-    install_path = get_install_path(skill_data)
+    install_path = get_install_path(skill_id, provider_id)
+
+    if not install_path:
+        return False
 
     os.makedirs(install_path, exist_ok=True)
 
@@ -102,16 +285,36 @@ def install_files(skill_id, skill_data):
             dst_path.write_bytes(src_path.read_bytes())
             os.chmod(dst_path, 0o755)
 
-    # Save checksum
     checksum = compute_skill_checksum(skill_id, skill_data)
     checksum_path = Path(install_path) / ".checksum"
     checksum_path.write_text(checksum)
 
-def save_config(skill_data, config):
-    """Save configuration to .env file."""
-    install_path = get_install_path(skill_data)
-    env_path = os.path.join(install_path, ".env")
+    # Copy central .env if exists
+    central_env = get_central_config_path(skill_id) / ".env"
+    if central_env.exists():
+        provider_env = Path(install_path) / ".env"
+        provider_env.write_text(central_env.read_text())
+        os.chmod(provider_env, 0o600)
 
+    return True
+
+
+def install_files(skill_id, skill_data):
+    """Install skill files to all enabled providers."""
+    results = []
+    for provider_id in get_enabled_providers():
+        success = install_files_to_provider(skill_id, skill_data, provider_id)
+        results.append({"provider": provider_id, "success": success})
+    return results
+
+
+def get_central_config_path(skill_id):
+    """Get central config directory for a skill."""
+    return CONFIG_DIR / skill_id
+
+
+def save_skill_config(skill_id, skill_data, config):
+    """Save configuration to central location and sync to installed providers."""
     lines = []
     for field in skill_data.get("fields", []):
         env_var = field.get("env_var", "")
@@ -119,39 +322,65 @@ def save_config(skill_data, config):
         if env_var:
             lines.append(f'{env_var}="{value}"')
 
-    with open(env_path, "w") as f:
-        f.write("\n".join(lines) + "\n")
+    content = "\n".join(lines) + "\n"
 
+    # Save to central location
+    central_path = get_central_config_path(skill_id)
+    central_path.mkdir(parents=True, exist_ok=True)
+    env_path = central_path / ".env"
+    env_path.write_text(content)
     os.chmod(env_path, 0o600)
 
-def get_current_config(skill_data):
-    """Get current configuration values."""
-    install_path = get_install_path(skill_data)
-    env_path = os.path.join(install_path, ".env")
+    # Sync to all installed providers
+    sync_config_to_providers(skill_id)
+
+
+def sync_config_to_providers(skill_id):
+    """Copy central .env to all providers where skill is installed."""
+    central_env = get_central_config_path(skill_id) / ".env"
+    if not central_env.exists():
+        return
+
+    content = central_env.read_text()
+    for provider_id in get_enabled_providers():
+        install_path = get_install_path(skill_id, provider_id)
+        if install_path and os.path.isdir(install_path):
+            provider_env = Path(install_path) / ".env"
+            provider_env.write_text(content)
+            os.chmod(provider_env, 0o600)
+
+
+def get_current_config(skill_id, skill_data):
+    """Get current configuration values from central location."""
+    central_env = get_central_config_path(skill_id) / ".env"
 
     config = {}
-    if os.path.isfile(env_path):
-        with open(env_path) as f:
-            for line in f:
-                line = line.strip()
-                if "=" in line:
-                    key, value = line.split("=", 1)
-                    value = value.strip('"').strip("'")
-                    # Map env_var back to field name
-                    for field in skill_data.get("fields", []):
-                        if field.get("env_var") == key:
-                            config[field["name"]] = value
-                            break
+    if not central_env.exists():
+        return config
+
+    for line in central_env.read_text().splitlines():
+        line = line.strip()
+        if "=" in line:
+            key, value = line.split("=", 1)
+            value = value.strip('"').strip("'")
+            for field in skill_data.get("fields", []):
+                if field.get("env_var") == key:
+                    config[field["name"]] = value
+                    break
 
     return config
 
+
 def test_skill(skill_id, skill_data):
     """Run skill test command."""
-    install_path = get_install_path(skill_data)
+    install_path = get_primary_install_path(skill_id)
     test_cmd = skill_data.get("test_command", "")
 
     if not test_cmd:
         return {"success": False, "output": "No test command defined"}
+
+    if not install_path:
+        return {"success": False, "output": "No providers configured"}
 
     executable = os.path.join(install_path, skill_id)
     if not os.path.isfile(executable):
@@ -166,22 +395,37 @@ def test_skill(skill_id, skill_data):
         "output": output or "(no output)"
     }
 
-def clear_auth(skill_data):
-    """Remove credentials."""
-    install_path = get_install_path(skill_data)
-    env_path = os.path.join(install_path, ".env")
 
-    if os.path.isfile(env_path):
-        os.remove(env_path)
-        return True
-    return False
+def clear_auth(skill_id, skill_data):
+    """Remove credentials from all providers."""
+    removed = False
+    for provider_id in get_enabled_providers():
+        install_path = get_install_path(skill_id, provider_id)
+        if install_path:
+            env_path = os.path.join(install_path, ".env")
+            if os.path.isfile(env_path):
+                os.remove(env_path)
+                removed = True
+    return removed
 
-def uninstall_skill(skill_data):
-    """Remove skill completely."""
-    install_path = get_install_path(skill_data)
 
-    if os.path.isdir(install_path):
-        import shutil
+def uninstall_skill(skill_id, skill_data):
+    """Remove skill from all providers."""
+    import shutil
+    removed = False
+    for provider_id in get_enabled_providers():
+        install_path = get_install_path(skill_id, provider_id)
+        if install_path and os.path.isdir(install_path):
+            shutil.rmtree(install_path)
+            removed = True
+    return removed
+
+
+def uninstall_skill_from_provider(skill_id, provider_id):
+    """Remove skill from a specific provider."""
+    import shutil
+    install_path = get_install_path(skill_id, provider_id)
+    if install_path and os.path.isdir(install_path):
         shutil.rmtree(install_path)
         return True
     return False
@@ -217,14 +461,18 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/" or path == "/index.html":
             self.serve_html()
+        elif path == "/api/providers":
+            self.send_json(get_providers_status())
         elif path == "/api/skills":
             self.send_json(get_skills())
+        elif path == "/api/check-updates":
+            self.send_json(check_for_updates())
         elif path.startswith("/api/skills/"):
             skill_id = path.split("/")[3]
             skills = {s["id"]: s for s in get_skills()}
             if skill_id in skills:
                 skill = skills[skill_id]
-                skill["config"] = get_current_config(skill)
+                skill["config"] = get_current_config(skill_id, skill)
                 self.send_json(skill)
             else:
                 self.send_json({"error": "Skill not found"}, 404)
@@ -240,13 +488,69 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
         body = self.rfile.read(content_length).decode() if content_length else "{}"
         data = json.loads(body) if body else {}
 
+        # Provider endpoints
+        if path == "/api/providers":
+            provider_id = data.get("id")
+            enabled = data.get("enabled", False)
+            custom_path = data.get("path")
+            if provider_id in AVAILABLE_PROVIDERS:
+                set_provider(provider_id, enabled, custom_path)
+                self.send_json({"success": True, "message": f"Provider {'enabled' if enabled else 'disabled'}"})
+            else:
+                self.send_json({"error": "Unknown provider"}, 400)
+            return
+
+        if path == "/api/providers/select":
+            provider_id = data.get("id")
+            if provider_id in AVAILABLE_PROVIDERS:
+                set_selected_provider(provider_id)
+                self.send_json({"success": True, "message": f"Selected {provider_id}"})
+            else:
+                self.send_json({"error": "Unknown provider"}, 400)
+            return
+
+        if path == "/api/update":
+            result = update_repo()
+            self.send_json(result)
+            return
+
         skills = {s["id"]: s for s in get_skills()}
+
+        if path.startswith("/api/skills/") and "/install/" in path:
+            # Install to specific provider: /api/skills/{id}/install/{provider}
+            parts = path.split("/")
+            skill_id = parts[3]
+            provider_id = parts[5]
+            if skill_id in skills:
+                success = install_files_to_provider(skill_id, skills[skill_id], provider_id)
+                if success:
+                    self.send_json({"success": True, "message": "Installed"})
+                    return
+                self.send_json({"error": "Failed to install"}, 400)
+                return
+            self.send_json({"error": "Skill not found"}, 404)
+            return
+
+        if path.startswith("/api/skills/") and "/uninstall/" in path:
+            # Uninstall from specific provider: /api/skills/{id}/uninstall/{provider}
+            parts = path.split("/")
+            skill_id = parts[3]
+            provider_id = parts[5]
+            if skill_id in skills:
+                uninstall_skill_from_provider(skill_id, provider_id)
+                self.send_json({"success": True, "message": "Removed"})
+                return
+            self.send_json({"error": "Skill not found"}, 404)
+            return
 
         if path.startswith("/api/skills/") and path.endswith("/install"):
             skill_id = path.split("/")[3]
             if skill_id in skills:
-                install_files(skill_id, skills[skill_id])
-                self.send_json({"success": True, "message": "Installed"})
+                if not get_enabled_providers():
+                    self.send_json({"error": "No providers configured"}, 400)
+                    return
+                results = install_files(skill_id, skills[skill_id])
+                self.send_json({"success": True, "message": "Installed", "results": results})
             else:
                 self.send_json({"error": "Skill not found"}, 404)
 
@@ -254,10 +558,14 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
             skill_id = path.split("/")[3]
             if skill_id in skills:
                 skill = skills[skill_id]
-                install_path = get_install_path(skill)
-                if not os.path.isdir(install_path):
+                if not get_enabled_providers():
+                    self.send_json({"error": "No providers configured"}, 400)
+                    return
+                # Install if not already installed
+                primary_path = get_primary_install_path(skill_id)
+                if not primary_path or not os.path.isdir(primary_path):
                     install_files(skill_id, skill)
-                save_config(skill, data)
+                save_skill_config(skill_id, skill, data)
                 self.send_json({"success": True, "message": "Configured"})
             else:
                 self.send_json({"error": "Skill not found"}, 404)
@@ -273,7 +581,7 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
         elif path.startswith("/api/skills/") and path.endswith("/clear-auth"):
             skill_id = path.split("/")[3]
             if skill_id in skills:
-                clear_auth(skills[skill_id])
+                clear_auth(skill_id, skills[skill_id])
                 self.send_json({"success": True, "message": "Credentials removed"})
             else:
                 self.send_json({"error": "Skill not found"}, 404)
@@ -281,7 +589,7 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
         elif path.startswith("/api/skills/") and path.endswith("/uninstall"):
             skill_id = path.split("/")[3]
             if skill_id in skills:
-                uninstall_skill(skills[skill_id])
+                uninstall_skill(skill_id, skills[skill_id])
                 self.send_json({"success": True, "message": "Uninstalled"})
             else:
                 self.send_json({"error": "Skill not found"}, 404)
@@ -289,6 +597,9 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
         elif path.startswith("/api/skills/") and path.endswith("/update"):
             skill_id = path.split("/")[3]
             if skill_id in skills:
+                if not get_enabled_providers():
+                    self.send_json({"error": "No providers configured"}, 400)
+                    return
                 install_files(skill_id, skills[skill_id])
                 self.send_json({"success": True, "message": "Updated"})
             else:
