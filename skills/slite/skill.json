@@ -16,6 +16,5 @@
     }
   ],
   "test_command": "search test",
-  "install_path": "~/.claude/skills/slite",
   "files": ["slite", "SKILL.md", "README.md"]
 }

@@ -7,6 +7,12 @@ TOKEN_FILE="$CONFIG_DIR/.tokens"
 
 mkdir -p "$CONFIG_DIR"
 
+# JSON parsing helper (no jq dependency)
+json_value() {
+    local key="$1"
+    python3 -c "import json,sys; data=json.load(sys.stdin); v=data.get('$key'); print(v if v else '')"
+}
+
 # Load configuration
 load_config() {
     [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
@@ -38,9 +44,9 @@ refresh_token() {
         -H "Content-Type: application/x-www-form-urlencoded" \
         -d "grant_type=refresh_token&refresh_token=$PIPEDRIVE_REFRESH_TOKEN")
 
-    local access=$(echo "$response" | jq -r '.access_token // empty')
-    local refresh=$(echo "$response" | jq -r '.refresh_token // empty')
-    local expires_in=$(echo "$response" | jq -r '.expires_in // empty')
+    local access=$(echo "$response" | json_value "access_token")
+    local refresh=$(echo "$response" | json_value "refresh_token")
+    local expires_in=$(echo "$response" | json_value "expires_in")
 
     [[ -z "$access" ]] && echo "Error: Token refresh failed" && return 1
 
@@ -143,10 +149,10 @@ EOF
         -H "Content-Type: application/x-www-form-urlencoded" \
         -d "grant_type=authorization_code&code=$auth_code&redirect_uri=https://oauth.pipedrive.com/callback")
 
-    local access=$(echo "$response" | jq -r '.access_token // empty')
-    local refresh=$(echo "$response" | jq -r '.refresh_token // empty')
-    local expires_in=$(echo "$response" | jq -r '.expires_in // empty')
-    local api_domain=$(echo "$response" | jq -r '.api_domain // empty')
+    local access=$(echo "$response" | json_value "access_token")
+    local refresh=$(echo "$response" | json_value "refresh_token")
+    local expires_in=$(echo "$response" | json_value "expires_in")
+    local api_domain=$(echo "$response" | json_value "api_domain")
 
     [[ -z "$access" ]] && echo "Error: Failed to get tokens. Response: $response" && exit 1
 

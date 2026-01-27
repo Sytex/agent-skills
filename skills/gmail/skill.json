@@ -24,6 +24,5 @@
     }
   ],
   "test_command": "me",
-  "install_path": "~/.claude/skills/gmail",
   "files": ["scripts/api.sh:gmail", "SKILL.md", "README.md"]
 }

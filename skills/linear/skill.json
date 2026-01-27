@@ -16,6 +16,5 @@
     }
   ],
   "test_command": "me",
-  "install_path": "~/.claude/skills/linear",
   "files": ["linear", "SKILL.md", "README.md"]
 }

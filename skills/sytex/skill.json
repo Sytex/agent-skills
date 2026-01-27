@@ -15,6 +15,5 @@
     }
   ],
   "test_command": "find-org test",
-  "install_path": "~/.claude/skills/sytex",
   "files": ["sytex", "SKILL.md", "FORM_TEMPLATES.md", "README.md"]
 }

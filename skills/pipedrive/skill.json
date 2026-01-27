@@ -25,6 +25,5 @@
   ],
   "post_install": "Run 'pipedrive auth' to complete OAuth2 authorization",
   "test_command": "status",
-  "install_path": "~/.claude/skills/pipedrive",
   "files": ["pipedrive", "SKILL.md", "README.md"]
 }

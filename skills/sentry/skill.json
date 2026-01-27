@@ -32,6 +32,5 @@
     }
   ],
   "test_command": "projects",
-  "install_path": "~/.claude/skills/sentry",
   "files": ["sentry", "SKILL.md", "README.md"]
 }

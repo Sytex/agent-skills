@@ -9,9 +9,22 @@ Skills for AI coding agents by the Sytex team.
 | [gmail](./skills/gmail)                     | Read Gmail messages via IMAP                                |
 | [issue-resolution](./skills/issue-resolution) | End-to-end workflow for resolving user-reported problems  |
 | [linear](./skills/linear)                   | Manage issues and projects                                  |
+| [pipedrive](./skills/pipedrive)             | Manage deals, contacts, and sales pipeline                  |
 | [sentry](./skills/sentry)                   | Monitor errors and issues                                   |
 | [slite](./skills/slite)                     | Connect with Slite knowledge base                           |
 | [sytex](./skills/sytex)                     | Interact with Sytex production API                          |
+
+## Supported Providers
+
+Skills can be installed to multiple AI coding agents simultaneously:
+
+| Provider | Install Path |
+| -------- | ------------ |
+| Claude Code | `~/.claude/skills/<skill>/` |
+| Codex CLI | `~/.codex/skills/<skill>/` |
+| Gemini CLI | `~/.gemini/skills/<skill>/` |
+
+The installer stores your provider configuration in `~/.agent-skills/config.json`.
 
 ## Installation
 
@@ -22,16 +35,12 @@ Skills for AI coding agents by the Sytex team.
 ./installer/install.sh
 ```
 
-<img width="339" height="288" alt="image" src="https://github.com/user-attachments/assets/63f6be8a-ec36-486f-8eac-a0996766ebd4" />
-
+On first run, you'll be prompted to select which providers to use. Skills are installed to all enabled providers.
 
 **Web UI:**
 ```bash
 ./installer/install.sh --web
 ```
-
-<img width="1185" height="515" alt="Screenshot 2026-01-24 at 21 47 33" src="https://github.com/user-attachments/assets/50b729fe-6687-42ab-a68e-6e8b0e20e472" />
-
 
 **Direct install:**
 ```bash
