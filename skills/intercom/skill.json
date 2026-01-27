@@ -1,0 +1,35 @@
+{
+  "name": "intercom",
+  "title": "Intercom",
+  "description": "Manage contacts, conversations, and tickets in Intercom",
+  "version": "1.0.0",
+  "setup_instructions": "To connect Intercom, you need OAuth2 credentials from the Intercom Developer Hub.",
+  "fields": [
+    {
+      "name": "client_id",
+      "label": "Client ID",
+      "type": "text",
+      "required": true,
+      "env_var": "INTERCOM_CLIENT_ID",
+      "help": "1. Go to Intercom Developer Hub\n2. Create a new app\n3. Set Redirect URI to: http://localhost:9876/callback\n4. Copy the Client ID",
+      "help_url": "https://developers.intercom.com/"
+    },
+    {
+      "name": "client_secret",
+      "label": "Client Secret",
+      "type": "password",
+      "required": true,
+      "env_var": "INTERCOM_CLIENT_SECRET",
+      "help": "Copy the Client Secret from your Intercom app"
+    }
+  ],
+  "oauth": {
+    "auth_url": "https://app.intercom.com/oauth",
+    "token_url": "https://api.intercom.io/auth/eagle/token",
+    "token_mapping": {
+      "access_token": "ACCESS_TOKEN"
+    }
+  },
+  "test_command": "status",
+  "files": ["intercom", "SKILL.md"]
+}

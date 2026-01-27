@@ -1,0 +1,468 @@
+#!/bin/bash
+# Intercom API CLI
+
+# Detect config directory (where this script is located)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/.env"
+
+API_URL="https://api.intercom.io"
+
+# JSON parsing helper
+json_value() {
+    local key="$1"
+    python3 -c "import json,sys; data=json.load(sys.stdin); v=data.get('$key'); print(v if v else '')"
+}
+
+# Load configuration
+load_config() {
+    [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
+}
+
+ensure_auth() {
+    load_config
+    [[ -z "$INTERCOM_ACCESS_TOKEN" ]] && echo "Error: Not authenticated. Use the installer to authorize." && exit 1
+}
+
+# API request helpers
+api_get() {
+    ensure_auth
+    local endpoint="$1"
+    curl -s -X GET "${API_URL}${endpoint}" \
+        -H "Authorization: Bearer $INTERCOM_ACCESS_TOKEN" \
+        -H "Accept: application/json" \
+        -H "Intercom-Version: 2.11"
+}
+
+api_post() {
+    ensure_auth
+    local endpoint="$1"
+    local data="$2"
+    curl -s -X POST "${API_URL}${endpoint}" \
+        -H "Authorization: Bearer $INTERCOM_ACCESS_TOKEN" \
+        -H "Content-Type: application/json" \
+        -H "Accept: application/json" \
+        -H "Intercom-Version: 2.11" \
+        -d "$data"
+}
+
+api_put() {
+    ensure_auth
+    local endpoint="$1"
+    local data="$2"
+    curl -s -X PUT "${API_URL}${endpoint}" \
+        -H "Authorization: Bearer $INTERCOM_ACCESS_TOKEN" \
+        -H "Content-Type: application/json" \
+        -H "Accept: application/json" \
+        -H "Intercom-Version: 2.11" \
+        -d "$data"
+}
+
+api_delete() {
+    ensure_auth
+    local endpoint="$1"
+    curl -s -X DELETE "${API_URL}${endpoint}" \
+        -H "Authorization: Bearer $INTERCOM_ACCESS_TOKEN" \
+        -H "Accept: application/json" \
+        -H "Intercom-Version: 2.11"
+}
+
+# === STATUS ===
+
+cmd_status() {
+    load_config
+
+    echo "Intercom Auth Status"
+    echo "===================="
+
+    [[ -z "$INTERCOM_CLIENT_ID" ]] && echo "Not configured. Use the installer to set up." && exit 0
+
+    echo "Client ID: ${INTERCOM_CLIENT_ID:0:8}..."
+
+    [[ -z "$INTERCOM_ACCESS_TOKEN" ]] && echo "Status: Not authenticated" && exit 0
+
+    # Test the connection
+    local response
+    response=$(api_get "/me")
+
+    local app_name
+    app_name=$(echo "$response" | json_value "app" | python3 -c "import json,sys; data=json.load(sys.stdin) if sys.stdin.read().strip() else {}; print(data.get('name', ''))" 2>/dev/null)
+
+    if [[ -n "$app_name" ]]; then
+        echo "Status: Connected"
+        echo "App: $app_name"
+    else
+        local error
+        error=$(echo "$response" | json_value "type")
+        if [[ "$error" == "error.list" ]]; then
+            echo "Status: Error - Invalid token"
+        else
+            echo "Status: Connected"
+        fi
+    fi
+}
+
+cmd_me() {
+    api_get "/me"
+}
+
+# === CONTACTS ===
+
+cmd_contacts() {
+    local params=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --email) params="email=$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ -n "$params" ]]; then
+        api_post "/contacts/search" "{\"query\":{\"field\":\"email\",\"operator\":\"=\",\"value\":\"${params#email=}\"}}"
+    else
+        api_get "/contacts"
+    fi
+}
+
+cmd_contact() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: contact ID required" && exit 1
+    api_get "/contacts/$id"
+}
+
+cmd_contact_create() {
+    local email="$1"
+    [[ -z "$email" ]] && echo "Error: email required" && exit 1
+    shift
+
+    local name="" phone="" role="user"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --name) name="$2"; shift 2 ;;
+            --phone) phone="$2"; shift 2 ;;
+            --role) role="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local json="{\"role\":\"$role\",\"email\":\"$email\""
+    [[ -n "$name" ]] && json="$json,\"name\":\"$name\""
+    [[ -n "$phone" ]] && json="$json,\"phone\":\"$phone\""
+    json="$json}"
+
+    api_post "/contacts" "$json"
+}
+
+cmd_contact_update() {
+    local id="$1"
+    local field="$2"
+    local value="$3"
+
+    [[ -z "$id" ]] && echo "Error: contact ID required" && exit 1
+    [[ -z "$field" ]] && echo "Error: field required" && exit 1
+    [[ -z "$value" ]] && echo "Error: value required" && exit 1
+
+    api_put "/contacts/$id" "{\"$field\":\"$value\"}"
+}
+
+cmd_contact_delete() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: contact ID required" && exit 1
+    api_delete "/contacts/$id"
+}
+
+# === CONVERSATIONS ===
+
+cmd_conversations() {
+    local params="?display_as=plaintext"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --open) params="$params&open=true"; shift ;;
+            --closed) params="$params&open=false"; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    api_get "/conversations$params"
+}
+
+cmd_conversation() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: conversation ID required" && exit 1
+    api_get "/conversations/$id?display_as=plaintext"
+}
+
+cmd_conversation_reply() {
+    local id="$1"
+    local message="$2"
+
+    [[ -z "$id" ]] && echo "Error: conversation ID required" && exit 1
+    [[ -z "$message" ]] && echo "Error: message required" && exit 1
+
+    # Get admin ID first
+    local me_response
+    me_response=$(api_get "/me")
+    local admin_id
+    admin_id=$(echo "$me_response" | json_value "id")
+
+    api_post "/conversations/$id/reply" "{\"message_type\":\"comment\",\"type\":\"admin\",\"admin_id\":\"$admin_id\",\"body\":\"$message\"}"
+}
+
+cmd_conversation_close() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: conversation ID required" && exit 1
+
+    local me_response
+    me_response=$(api_get "/me")
+    local admin_id
+    admin_id=$(echo "$me_response" | json_value "id")
+
+    api_post "/conversations/$id/parts" "{\"message_type\":\"close\",\"type\":\"admin\",\"admin_id\":\"$admin_id\"}"
+}
+
+cmd_conversation_open() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: conversation ID required" && exit 1
+
+    local me_response
+    me_response=$(api_get "/me")
+    local admin_id
+    admin_id=$(echo "$me_response" | json_value "id")
+
+    api_post "/conversations/$id/parts" "{\"message_type\":\"open\",\"type\":\"admin\",\"admin_id\":\"$admin_id\"}"
+}
+
+# === COMPANIES ===
+
+cmd_companies() {
+    api_get "/companies"
+}
+
+cmd_company() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: company ID required" && exit 1
+    api_get "/companies/$id"
+}
+
+cmd_company_create() {
+    local name="$1"
+    [[ -z "$name" ]] && echo "Error: name required" && exit 1
+    shift
+
+    local company_id=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --id) company_id="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local json="{\"name\":\"$name\""
+    [[ -n "$company_id" ]] && json="$json,\"company_id\":\"$company_id\""
+    json="$json}"
+
+    api_post "/companies" "$json"
+}
+
+# === TICKETS ===
+
+cmd_tickets() {
+    api_post "/tickets/search" "{\"query\":{\"operator\":\"AND\",\"value\":[]}}"
+}
+
+cmd_ticket() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: ticket ID required" && exit 1
+    api_get "/tickets/$id"
+}
+
+cmd_ticket_create() {
+    local type_id="$1"
+    local title="$2"
+
+    [[ -z "$type_id" ]] && echo "Error: ticket type ID required" && exit 1
+    [[ -z "$title" ]] && echo "Error: title required" && exit 1
+    shift 2
+
+    local contact_id="" description=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --contact) contact_id="$2"; shift 2 ;;
+            --description) description="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local json="{\"ticket_type_id\":\"$type_id\",\"ticket_attributes\":{\"_default_title_\":\"$title\""
+    [[ -n "$description" ]] && json="$json,\"_default_description_\":\"$description\""
+    json="$json}"
+    [[ -n "$contact_id" ]] && json="$json,\"contacts\":[{\"id\":\"$contact_id\"}]"
+    json="$json}"
+
+    api_post "/tickets" "$json"
+}
+
+cmd_ticket_update() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: ticket ID required" && exit 1
+    shift
+
+    local open="" state_id=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --close) open="false"; shift ;;
+            --open) open="true"; shift ;;
+            --state) state_id="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local json="{"
+    local first=true
+
+    if [[ -n "$open" ]]; then
+        json="$json\"open\":$open"
+        first=false
+    fi
+
+    if [[ -n "$state_id" ]]; then
+        [[ "$first" == "false" ]] && json="$json,"
+        json="$json\"state_id\":\"$state_id\""
+    fi
+
+    json="$json}"
+
+    api_put "/tickets/$id" "$json"
+}
+
+cmd_ticket_types() {
+    api_get "/ticket_types"
+}
+
+# === ADMINS ===
+
+cmd_admins() {
+    api_get "/admins"
+}
+
+cmd_admin() {
+    local id="$1"
+    [[ -z "$id" ]] && echo "Error: admin ID required" && exit 1
+    api_get "/admins/$id"
+}
+
+# === TAGS ===
+
+cmd_tags() {
+    api_get "/tags"
+}
+
+cmd_tag_contact() {
+    local contact_id="$1"
+    local tag_id="$2"
+
+    [[ -z "$contact_id" ]] && echo "Error: contact ID required" && exit 1
+    [[ -z "$tag_id" ]] && echo "Error: tag ID required" && exit 1
+
+    api_post "/contacts/$contact_id/tags" "{\"id\":\"$tag_id\"}"
+}
+
+# === SEARCH ===
+
+cmd_search() {
+    local query="$1"
+    [[ -z "$query" ]] && echo "Error: search query required" && exit 1
+
+    api_post "/contacts/search" "{\"query\":{\"operator\":\"OR\",\"value\":[{\"field\":\"email\",\"operator\":\"~\",\"value\":\"$query\"},{\"field\":\"name\",\"operator\":\"~\",\"value\":\"$query\"}]}}"
+}
+
+# === HELP ===
+
+show_help() {
+    echo "Intercom API CLI"
+    echo ""
+    echo "SETUP:"
+    echo "  status                              Check authentication status"
+    echo "  me                                  Get current admin info"
+    echo ""
+    echo "CONTACTS:"
+    echo "  contacts [--email <email>]          List or search contacts"
+    echo "  contact <id>                        Get contact details"
+    echo "  contact-create <email> [flags]      Create contact"
+    echo "    --name <name>                     Contact name"
+    echo "    --phone <phone>                   Phone number"
+    echo "    --role <user|lead>                Contact role (default: user)"
+    echo "  contact-update <id> <field> <val>   Update contact field"
+    echo "  contact-delete <id>                 Delete contact"
+    echo ""
+    echo "CONVERSATIONS:"
+    echo "  conversations [--open|--closed]     List conversations"
+    echo "  conversation <id>                   Get conversation details"
+    echo "  conversation-reply <id> <message>   Reply to conversation"
+    echo "  conversation-close <id>             Close conversation"
+    echo "  conversation-open <id>              Reopen conversation"
+    echo ""
+    echo "COMPANIES:"
+    echo "  companies                           List companies"
+    echo "  company <id>                        Get company details"
+    echo "  company-create <name> [--id <id>]   Create company"
+    echo ""
+    echo "TICKETS:"
+    echo "  tickets                             List tickets"
+    echo "  ticket <id>                         Get ticket details"
+    echo "  ticket-create <type_id> <title>     Create ticket"
+    echo "    --contact <id>                    Link to contact"
+    echo "    --description <text>              Ticket description"
+    echo "  ticket-update <id> [flags]          Update ticket"
+    echo "    --close                           Close ticket"
+    echo "    --open                            Reopen ticket"
+    echo "    --state <state_id>                Set ticket state"
+    echo "  ticket-types                        List ticket types"
+    echo ""
+    echo "ADMINS:"
+    echo "  admins                              List admins"
+    echo "  admin <id>                          Get admin details"
+    echo ""
+    echo "TAGS:"
+    echo "  tags                                List tags"
+    echo "  tag-contact <contact_id> <tag_id>   Tag a contact"
+    echo ""
+    echo "SEARCH:"
+    echo "  search <query>                      Search contacts by name or email"
+}
+
+# === MAIN ===
+
+case "$1" in
+    status) cmd_status ;;
+    me) cmd_me ;;
+    contacts) shift; cmd_contacts "$@" ;;
+    contact) cmd_contact "$2" ;;
+    contact-create) shift; cmd_contact_create "$@" ;;
+    contact-update) cmd_contact_update "$2" "$3" "$4" ;;
+    contact-delete) cmd_contact_delete "$2" ;;
+    conversations) shift; cmd_conversations "$@" ;;
+    conversation) cmd_conversation "$2" ;;
+    conversation-reply) cmd_conversation_reply "$2" "$3" ;;
+    conversation-close) cmd_conversation_close "$2" ;;
+    conversation-open) cmd_conversation_open "$2" ;;
+    companies) cmd_companies ;;
+    company) cmd_company "$2" ;;
+    company-create) shift; cmd_company_create "$@" ;;
+    tickets) cmd_tickets ;;
+    ticket) cmd_ticket "$2" ;;
+    ticket-create) shift; cmd_ticket_create "$@" ;;
+    ticket-update) shift; cmd_ticket_update "$@" ;;
+    ticket-types) cmd_ticket_types ;;
+    admins) cmd_admins ;;
+    admin) cmd_admin "$2" ;;
+    tags) cmd_tags ;;
+    tag-contact) cmd_tag_contact "$2" "$3" ;;
+    search) cmd_search "$2" ;;
+    *) show_help ;;
+esac

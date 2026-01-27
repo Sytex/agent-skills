@@ -847,53 +847,119 @@
             // Show config form only if installed somewhere and has fields
             if (isInstalledAnywhere && hasFields) {
                 const needsConfig = !skill.config || Object.keys(skill.config).length === 0;
-                const actionText = needsConfig ? 'Configure credentials:' : 'Update credentials:';
+                const hasOAuth = !!skill.oauth;
+
                 html += `<div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)">`;
-                html += `<p style="color:var(--text-dim);margin-bottom:1rem">${actionText}</p>`;
 
-                html += '<form id="config-form">';
+                if (hasOAuth) {
+                    // OAuth flow
+                    const isAuthorized = skill.config?.access_token || Object.keys(skill.config || {}).some(k => k.toLowerCase().includes('access_token'));
+                    html += `<p style="color:var(--text-dim);margin-bottom:1rem">${isAuthorized ? 'Connected. Re-authorize to update:' : 'Connect your account:'}</p>`;
 
-                for (const field of skill.fields || []) {
-                    const value = skill.config?.[field.name] || field.default || '';
-                    const isPassword = field.type === 'password';
+                    // Show redirect URI notice
+                    html += `<div class="alert alert-info" style="margin-bottom:1rem">
+                        <strong>Redirect URI:</strong> <code style="background:var(--bg);padding:0.2rem 0.5rem;border-radius:4px">http://localhost:9876/callback</code>
+                        <br><span style="font-size:0.85rem;opacity:0.8">Configure this in your ${skill.title} app settings</span>
+                    </div>`;
 
-                    html += `<div class="form-group">`;
+                    html += '<form id="oauth-form">';
 
-                    html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">`;
-                    html += `<label class="form-label" style="margin:0">${field.label} ${field.required ? '<span class="required">*</span>' : ''}</label>`;
-                    if (field.help || field.help_url) {
-                        html += `<button type="button" onclick="this.parentElement.nextElementSibling.open=!this.parentElement.nextElementSibling.open" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:0.85rem">How do I get this?</button>`;
+                    // Only show client_id and client_secret fields for OAuth
+                    for (const field of skill.fields || []) {
+                        if (!field.env_var?.includes('CLIENT_ID') && !field.env_var?.includes('CLIENT_SECRET')) continue;
+
+                        const value = skill.config?.[field.name] || field.default || '';
+                        const isPassword = field.type === 'password';
+
+                        html += `<div class="form-group">`;
+                        html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">`;
+                        html += `<label class="form-label" style="margin:0">${field.label} ${field.required ? '<span class="required">*</span>' : ''}</label>`;
+                        if (field.help || field.help_url) {
+                            html += `<button type="button" onclick="this.parentElement.nextElementSibling.open=!this.parentElement.nextElementSibling.open" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:0.85rem">How do I get this?</button>`;
+                        }
+                        html += `</div>`;
+
+                        if (field.help || field.help_url) {
+                            html += `<details class="field-help">`;
+                            html += `<summary style="display:none"></summary>`;
+                            html += `<div class="form-help" style="margin-bottom:0.75rem;padding:0.75rem;background:var(--bg);border-radius:6px">`;
+                            if (field.help) html += field.help;
+                            if (field.help_url) html += `<br><a href="${field.help_url}" target="_blank" style="display:inline-block;margin-top:0.5rem">Open ${skill.title} settings ↗</a>`;
+                            html += `</div></details>`;
+                        }
+
+                        html += `<input
+                            type="${isPassword ? 'password' : 'text'}"
+                            class="form-input"
+                            name="${field.name}"
+                            value="${isPassword && value ? '' : escapeHtml(value)}"
+                            placeholder="${isPassword && value ? '••••••••••••••••' : ''}"
+                            ${field.required ? 'required' : ''}
+                        >`;
+                        html += `</div>`;
                     }
-                    html += `</div>`;
+                    html += '</form>';
 
-                    if (field.help || field.help_url) {
-                        html += `<details class="field-help">`;
-                        html += `<summary style="display:none"></summary>`;
-                        html += `<div class="form-help" style="margin-bottom:0.75rem;padding:0.75rem;background:var(--bg);border-radius:6px">`;
-                        if (field.help) html += field.help;
-                        if (field.help_url) html += `<br><a href="${field.help_url}" target="_blank" style="display:inline-block;margin-top:0.5rem">Open ${skill.title} settings ↗</a>`;
-                        html += `</div></details>`;
+                    html += '<div id="oauth-status" style="display:none;margin:1rem 0;padding:1rem;background:var(--bg);border-radius:8px;text-align:center;"></div>';
+
+                    html += '<div id="test-output-container" style="display:none;margin-top:1rem;"><div class="test-output" id="test-output"></div></div>';
+
+                    html += '<div class="actions" style="margin-top:1rem">';
+                    html += `<button class="btn btn-primary" id="oauth-btn" onclick="startOAuth()">Authorize ${skill.title}</button>`;
+                    if (isAuthorized) {
+                        html += '<button class="btn btn-secondary" onclick="testSkill()">Test</button>';
                     }
+                    html += '</div>';
+                } else {
+                    // Regular config form
+                    const actionText = needsConfig ? 'Configure credentials:' : 'Update credentials:';
+                    html += `<p style="color:var(--text-dim);margin-bottom:1rem">${actionText}</p>`;
 
-                    html += `<input
-                        type="${isPassword ? 'password' : 'text'}"
-                        class="form-input"
-                        name="${field.name}"
-                        value="${isPassword && value ? '' : escapeHtml(value)}"
-                        placeholder="${isPassword && value ? '••••••••••••••••' : ''}"
-                        ${field.required ? 'required' : ''}
-                    >`;
+                    html += '<form id="config-form">';
 
-                    html += `</div>`;
+                    for (const field of skill.fields || []) {
+                        const value = skill.config?.[field.name] || field.default || '';
+                        const isPassword = field.type === 'password';
+
+                        html += `<div class="form-group">`;
+
+                        html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">`;
+                        html += `<label class="form-label" style="margin:0">${field.label} ${field.required ? '<span class="required">*</span>' : ''}</label>`;
+                        if (field.help || field.help_url) {
+                            html += `<button type="button" onclick="this.parentElement.nextElementSibling.open=!this.parentElement.nextElementSibling.open" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:0.85rem">How do I get this?</button>`;
+                        }
+                        html += `</div>`;
+
+                        if (field.help || field.help_url) {
+                            html += `<details class="field-help">`;
+                            html += `<summary style="display:none"></summary>`;
+                            html += `<div class="form-help" style="margin-bottom:0.75rem;padding:0.75rem;background:var(--bg);border-radius:6px">`;
+                            if (field.help) html += field.help;
+                            if (field.help_url) html += `<br><a href="${field.help_url}" target="_blank" style="display:inline-block;margin-top:0.5rem">Open ${skill.title} settings ↗</a>`;
+                            html += `</div></details>`;
+                        }
+
+                        html += `<input
+                            type="${isPassword ? 'password' : 'text'}"
+                            class="form-input"
+                            name="${field.name}"
+                            value="${isPassword && value ? '' : escapeHtml(value)}"
+                            placeholder="${isPassword && value ? '••••••••••••••••' : ''}"
+                            ${field.required ? 'required' : ''}
+                        >`;
+
+                        html += `</div>`;
+                    }
+                    html += '</form>';
+
+                    html += '<div id="test-output-container" style="display:none;margin-top:1rem;"><div class="test-output" id="test-output"></div></div>';
+
+                    html += '<div class="actions" style="margin-top:1rem">';
+                    html += '<button class="btn btn-primary" onclick="saveConfig()">Save</button>';
+                    html += '<button class="btn btn-secondary" onclick="testSkill()">Test</button>';
+                    html += '</div>';
                 }
-                html += '</form>';
 
-                html += '<div id="test-output-container" style="display:none;margin-top:1rem;"><div class="test-output" id="test-output"></div></div>';
-
-                html += '<div class="actions" style="margin-top:1rem">';
-                html += '<button class="btn btn-primary" onclick="saveConfig()">Save</button>';
-                html += '<button class="btn btn-secondary" onclick="testSkill()">Test</button>';
-                html += '</div>';
                 html += '</div>';
             }
 
@@ -999,6 +1065,64 @@
 
             output.textContent = result.output;
             showToast(result.success ? 'Test passed' : 'Test failed', result.success ? 'success' : 'error');
+        }
+
+        async function startOAuth() {
+            const form = document.getElementById('oauth-form');
+            const formData = new FormData(form);
+            const btn = document.getElementById('oauth-btn');
+            const status = document.getElementById('oauth-status');
+
+            // Get client credentials
+            let clientId = null;
+            let clientSecret = null;
+
+            for (const field of currentSkill.fields || []) {
+                const value = formData.get(field.name);
+                if (field.env_var?.includes('CLIENT_ID')) {
+                    clientId = value || currentSkill.config?.[field.name];
+                } else if (field.env_var?.includes('CLIENT_SECRET')) {
+                    clientSecret = value || currentSkill.config?.[field.name];
+                }
+            }
+
+            if (!clientId || !clientSecret) {
+                showToast('Client ID and Client Secret are required', 'error');
+                return;
+            }
+
+            // Update UI
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span> Waiting for authorization...';
+            status.style.display = 'block';
+            status.innerHTML = 'A browser window will open. Please authorize the application.<br><span style="color:var(--text-dim);font-size:0.85rem">This may take a moment...</span>';
+
+            const response = await fetch(`${API}/skills/${currentSkill.id}/oauth`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ client_id: clientId, client_secret: clientSecret })
+            }).catch(() => null);
+
+            btn.disabled = false;
+            btn.innerHTML = `Authorize ${currentSkill.title}`;
+
+            if (!response) {
+                status.innerHTML = '<span style="color:var(--red)">Connection failed. Please try again.</span>';
+                showToast('Connection failed', 'error');
+                return;
+            }
+
+            const result = await response.json().catch(() => ({ error: 'Unknown error' }));
+
+            if (result.error) {
+                status.innerHTML = `<span style="color:var(--red)">${escapeHtml(result.error)}</span>`;
+                showToast('Authorization failed', 'error');
+                return;
+            }
+
+            status.innerHTML = '<span style="color:var(--green)">&#10004; Authorization successful!</span>';
+            showToast('Authorization complete');
+            await refreshSkill();
         }
 
         async function clearAuth() {

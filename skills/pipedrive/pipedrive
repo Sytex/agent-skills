@@ -1,11 +1,9 @@
 #!/bin/bash
 # Pipedrive API CLI with OAuth2
 
-CONFIG_DIR="$HOME/.claude/skills/pipedrive"
-CONFIG_FILE="$CONFIG_DIR/.env"
-TOKEN_FILE="$CONFIG_DIR/.tokens"
-
-mkdir -p "$CONFIG_DIR"
+# Detect config directory (where this script is located)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/.env"
 
 # JSON parsing helper (no jq dependency)
 json_value() {
@@ -16,7 +14,17 @@ json_value() {
 # Load configuration
 load_config() {
     [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
-    [[ -f "$TOKEN_FILE" ]] && source "$TOKEN_FILE"
+
+    # Handle api_domain from OAuth response (extract company domain)
+    if [[ -n "$PIPEDRIVE_API_DOMAIN" && -z "$PIPEDRIVE_COMPANY_DOMAIN" ]]; then
+        PIPEDRIVE_COMPANY_DOMAIN=$(echo "$PIPEDRIVE_API_DOMAIN" | sed 's|https://||' | sed 's|\.pipedrive\.com.*||')
+    fi
+
+    # Calculate token expiration timestamp if we have expires_in but not expires
+    if [[ -n "$PIPEDRIVE_TOKEN_EXPIRES_IN" && -z "$PIPEDRIVE_TOKEN_EXPIRES" ]]; then
+        # Assume token was just obtained, set expiration
+        PIPEDRIVE_TOKEN_EXPIRES=$(($(date +%s) + PIPEDRIVE_TOKEN_EXPIRES_IN - 60))
+    fi
 }
 
 save_tokens() {
@@ -25,13 +33,19 @@ save_tokens() {
     local expires="$3"
     local domain="$4"
 
-    cat > "$TOKEN_FILE" << EOF
+    # Update tokens in .env file while preserving client credentials
+    local client_id="$PIPEDRIVE_CLIENT_ID"
+    local client_secret="$PIPEDRIVE_CLIENT_SECRET"
+
+    cat > "$CONFIG_FILE" << EOF
+PIPEDRIVE_CLIENT_ID="$client_id"
+PIPEDRIVE_CLIENT_SECRET="$client_secret"
 PIPEDRIVE_ACCESS_TOKEN="$access"
 PIPEDRIVE_REFRESH_TOKEN="$refresh"
 PIPEDRIVE_TOKEN_EXPIRES="$expires"
 PIPEDRIVE_COMPANY_DOMAIN="$domain"
 EOF
-    chmod 600 "$TOKEN_FILE"
+    chmod 600 "$CONFIG_FILE"
 }
 
 # OAuth2 token refresh
@@ -61,14 +75,19 @@ refresh_token() {
 ensure_valid_token() {
     load_config
 
-    [[ -z "$PIPEDRIVE_ACCESS_TOKEN" ]] && echo "Error: Not authenticated. Run: pipedrive auth" && exit 1
+    [[ -z "$PIPEDRIVE_ACCESS_TOKEN" ]] && echo "Error: Not authenticated. Use the installer to authorize." && exit 1
 
     local now=$(date +%s)
-    [[ "$now" -ge "$PIPEDRIVE_TOKEN_EXPIRES" ]] && refresh_token
+    [[ -n "$PIPEDRIVE_TOKEN_EXPIRES" && "$now" -ge "$PIPEDRIVE_TOKEN_EXPIRES" ]] && refresh_token
 }
 
 get_api_url() {
-    echo "https://${PIPEDRIVE_COMPANY_DOMAIN}.pipedrive.com/api/v1"
+    # Handle both full api_domain URL and company domain only
+    if [[ "$PIPEDRIVE_COMPANY_DOMAIN" == https://* ]]; then
+        echo "${PIPEDRIVE_COMPANY_DOMAIN}/api/v1"
+    else
+        echo "https://${PIPEDRIVE_COMPANY_DOMAIN}.pipedrive.com/api/v1"
+    fi
 }
 
 # API request helpers

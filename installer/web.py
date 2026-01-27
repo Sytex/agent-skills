@@ -409,6 +409,64 @@ def clear_auth(skill_id, skill_data):
     return removed
 
 
+def run_oauth_flow(skill_id, skill_data, client_id, client_secret):
+    """Run OAuth flow for a skill."""
+    from oauth import run_oauth_flow as oauth_flow
+
+    oauth_config = skill_data.get("oauth")
+    if not oauth_config:
+        return {"error": "Skill does not support OAuth"}
+
+    result = oauth_flow(oauth_config, client_id, client_secret)
+    return result
+
+
+def save_oauth_tokens(skill_id, skill_data, tokens, client_id, client_secret):
+    """Save OAuth tokens to skill config."""
+    # Build env content from fields + tokens
+    lines = []
+
+    # Add client credentials
+    for field in skill_data.get("fields", []):
+        env_var = field.get("env_var", "")
+        if "CLIENT_ID" in env_var:
+            lines.append(f'{env_var}="{client_id}"')
+        elif "CLIENT_SECRET" in env_var:
+            lines.append(f'{env_var}="{client_secret}"')
+
+    # Add tokens
+    oauth_config = skill_data.get("oauth", {})
+    token_mapping = oauth_config.get("token_mapping", {
+        "access_token": "ACCESS_TOKEN",
+        "refresh_token": "REFRESH_TOKEN",
+        "expires_in": "TOKEN_EXPIRES_IN",
+    })
+
+    prefix = skill_id.upper()
+    for token_key, env_suffix in token_mapping.items():
+        if token_key in tokens:
+            value = tokens[token_key]
+            lines.append(f'{prefix}_{env_suffix}="{value}"')
+
+    # Add any extra fields from token response
+    for key, value in tokens.items():
+        if key not in token_mapping and value and isinstance(value, (str, int)):
+            env_key = f"{prefix}_{key.upper()}"
+            lines.append(f'{env_key}="{value}"')
+
+    content = "\n".join(lines) + "\n"
+
+    # Save to central location
+    central_path = get_central_config_path(skill_id)
+    central_path.mkdir(parents=True, exist_ok=True)
+    env_path = central_path / ".env"
+    env_path.write_text(content)
+    os.chmod(env_path, 0o600)
+
+    # Sync to providers
+    sync_config_to_providers(skill_id)
+
+
 def uninstall_skill(skill_id, skill_data):
     """Remove skill from all providers."""
     import shutil
@@ -577,6 +635,43 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
                 self.send_json(result)
             else:
                 self.send_json({"error": "Skill not found"}, 404)
+
+        elif path.startswith("/api/skills/") and path.endswith("/oauth"):
+            skill_id = path.split("/")[3]
+            if skill_id not in skills:
+                self.send_json({"error": "Skill not found"}, 404)
+                return
+
+            skill = skills[skill_id]
+            if not skill.get("oauth"):
+                self.send_json({"error": "Skill does not support OAuth"}, 400)
+                return
+
+            client_id = data.get("client_id")
+            client_secret = data.get("client_secret")
+            if not client_id or not client_secret:
+                self.send_json({"error": "client_id and client_secret required"}, 400)
+                return
+
+            # Install files first if needed
+            if not get_enabled_providers():
+                self.send_json({"error": "No providers configured"}, 400)
+                return
+
+            primary_path = get_primary_install_path(skill_id)
+            if not primary_path or not os.path.isdir(primary_path):
+                install_files(skill_id, skill)
+
+            # Run OAuth flow
+            result = run_oauth_flow(skill_id, skill, client_id, client_secret)
+
+            if "error" in result:
+                self.send_json({"error": result["error"]}, 400)
+                return
+
+            # Save tokens
+            save_oauth_tokens(skill_id, skill, result, client_id, client_secret)
+            self.send_json({"success": True, "message": "OAuth authorization complete"})
 
         elif path.startswith("/api/skills/") and path.endswith("/clear-auth"):
             skill_id = path.split("/")[3]
