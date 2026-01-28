@@ -162,6 +162,7 @@ execute_query() {
         --port="$DB_PORT"
         --user="$DB_USER"
         --password="$DB_PASSWORD"
+        --connect-timeout=5
     )
 
     # Add database if specified
@@ -205,7 +206,7 @@ cmd_dbs() {
         echo -e "    User: $user"
 
         # Test connection
-        local test_result=$(mysql -h "$host" -P "${port:-3306}" -u "$user" -p"$password" --database="$database" -e "SELECT 1;" 2>&1)
+        local test_result=$(mysql -h "$host" -P "${port:-3306}" -u "$user" -p"$password" --database="$database" --connect-timeout=5 -e "SELECT 1;" 2>&1)
         if echo "$test_result" | grep -q "^1$"; then
             echo -e "    Status: ${GREEN}✓ connected${NC}"
         else
