@@ -19,7 +19,7 @@
       "check": "python3 -c 'import matplotlib'",
       "install": {
         "darwin": "pip3 install matplotlib",
-        "linux": "pip3 install matplotlib",
+        "linux": "python3 -m pip install matplotlib",
         "windows": "pip install matplotlib"
       }
     }
