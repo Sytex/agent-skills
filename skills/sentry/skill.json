@@ -1,36 +1,47 @@
 {
   "name": "sentry",
   "title": "Sentry",
-  "description": "Monitor errors and issues from Sentry",
-  "version": "1.0.0",
-  "setup_instructions": "To connect Sentry, you need an Auth Token from your Sentry account.",
+  "description": "Monitor errors and issues from Sentry. Supports multiple organizations.",
+  "version": "2.0.0",
+  "setup_instructions": "Add your Sentry organizations. You can configure multiple orgs with different tokens.",
   "fields": [
     {
-      "name": "token",
-      "label": "Auth Token",
-      "type": "password",
+      "name": "organizations",
+      "label": "Organizations",
+      "type": "list",
       "required": true,
-      "env_var": "SENTRY_TOKEN",
-      "help": "1. Go to the link below\n2. Click 'Create New Token'\n3. Give it a name (e.g. 'Claude')\n4. Select scopes: project:read, event:read\n5. Click 'Create Token' and copy it",
-      "help_url": "https://sytex.sentry.io/settings/auth-tokens/"
+      "item_fields": [
+        {
+          "name": "slug",
+          "label": "Organization Slug",
+          "type": "text",
+          "required": true,
+          "help": "The short name of your organization (e.g., 'sytex', 'sytex-eu'). Found in Sentry URL: https://YOUR-ORG.sentry.io"
+        },
+        {
+          "name": "token",
+          "label": "Auth Token",
+          "type": "password",
+          "required": true,
+          "help": "Create at Settings > Auth Tokens. Scopes needed: project:read, event:read"
+        },
+        {
+          "name": "url",
+          "label": "Sentry URL",
+          "type": "text",
+          "default": "https://sentry.io",
+          "help": "Base URL. Use https://sentry.io for cloud, or your self-hosted URL"
+        }
+      ],
+      "help": "Add one or more Sentry organizations"
     },
     {
-      "name": "org",
-      "label": "Organization Slug",
+      "name": "default_org",
+      "label": "Default Organization",
       "type": "text",
-      "required": true,
-      "env_var": "SENTRY_ORG",
-      "help": "The short name of your organization. You can find it in any Sentry URL: sentry.io/organizations/YOUR-ORG-SLUG/..."
-    },
-    {
-      "name": "base_url",
-      "label": "Sentry URL",
-      "type": "text",
-      "default": "https://sentry.io",
-      "env_var": "SENTRY_BASE_URL",
-      "help": "Leave as https://sentry.io unless your company has its own Sentry server"
+      "help": "Which org to use when --org is not specified. Leave empty to use the first one."
     }
   ],
-  "test_command": "projects",
+  "test_command": "orgs",
   "files": ["sentry", "SKILL.md", "README.md"]
 }

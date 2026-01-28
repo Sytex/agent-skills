@@ -1,18 +1,35 @@
 ---
 name: sentry
-description: Monitor errors and issues from Sentry. Use when user asks about errors, exceptions, issues, or wants to check Sentry.
+description: Monitor errors and issues from Sentry. Supports multiple organizations. Use when user asks about errors, exceptions, issues, or wants to check Sentry.
 allowed-tools:
   - Read
   - Bash(~/.claude/skills/sentry/*:*)
 ---
 
-# Sentry Integration
+# Sentry Integration (Multi-org)
 
-Monitor and manage errors, issues, and events from Sentry.
+Monitor and manage errors, issues, and events from multiple Sentry organizations.
+
+## Multi-Organization Support
+
+This skill supports multiple Sentry organizations. Use `--org <slug>` to specify which organization to query.
+
+```bash
+# List all configured organizations
+~/.claude/skills/sentry/sentry orgs
+
+# Query a specific organization
+~/.claude/skills/sentry/sentry --org sytex-eu issues
+```
 
 ## Commands
 
 All commands: `~/.claude/skills/sentry/sentry [--org <slug>] <command>`
+
+### Organizations
+| Command | Description |
+|---------|-------------|
+| `orgs` | List all configured organizations with connection status |
 
 ### Projects
 | Command | Description |
@@ -69,8 +86,14 @@ All commands: `~/.claude/skills/sentry/sentry [--org <slug>] <command>`
 ## Examples
 
 ```bash
-# List unresolved issues
+# List all configured organizations
+~/.claude/skills/sentry/sentry orgs
+
+# List unresolved issues (uses default org)
 ~/.claude/skills/sentry/sentry issues --status unresolved --limit 10
+
+# List issues from a specific org
+~/.claude/skills/sentry/sentry --org sytex-eu issues --status unresolved
 
 # Get issue details
 ~/.claude/skills/sentry/sentry issue 12345678
@@ -84,3 +107,15 @@ All commands: `~/.claude/skills/sentry/sentry [--org <slug>] <command>`
 # Search by environment
 ~/.claude/skills/sentry/sentry issues --query "environment:production level:error"
 ```
+
+## Configuration
+
+The skill stores organization credentials in `~/.claude/skills/sentry/.env` with the format:
+
+```
+SENTRY_ORG_<SLUG>_TOKEN="..."
+SENTRY_ORG_<SLUG>_URL="https://sentry.io"
+SENTRY_DEFAULT_ORG="sytex"
+```
+
+Run the installer to add or modify organizations.

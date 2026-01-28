@@ -795,6 +795,13 @@ configure_skill() {
         help_url=$(echo "$field_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('help_url',''))")
         env_var=$(echo "$field_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('env_var',''))")
 
+        # Handle list type fields (e.g., multiple organizations)
+        if [[ "$type" == "list" ]]; then
+            env_content+=$(configure_list_field "$skill" "$field_json" "$primary_path")
+            echo ""
+            continue
+        fi
+
         # Show field info
         local required_mark=""
         [[ "$required" == "True" ]] && required_mark=" ${RED}(required)${NC}"
@@ -856,6 +863,174 @@ configure_skill() {
     done < <(get_enabled_providers)
 
     style green "Configuration saved"
+}
+
+# Configure a list-type field (e.g., multiple Sentry organizations)
+configure_list_field() {
+    local skill="$1"
+    local field_json="$2"
+    local primary_path="$3"
+
+    local label name env_prefix item_fields_json
+    label=$(echo "$field_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('label','Items'))")
+    name=$(echo "$field_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('name',''))")
+    help=$(echo "$field_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('help',''))")
+    item_fields_json=$(echo "$field_json" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin).get('item_fields', [])))")
+
+    # Env prefix based on skill and field name (e.g., SENTRY_ORG_)
+    local skill_upper=$(echo "$skill" | tr '[:lower:]-' '[:upper:]_')
+    env_prefix="${skill_upper}_ORG_"
+
+    echo -e "${BOLD}$label${NC}"
+    [[ -n "$help" ]] && echo -e "  ${DIM}$help${NC}"
+    echo ""
+
+    # Get existing items from .env
+    local existing_slugs=()
+    if [[ -f "$primary_path/.env" ]]; then
+        while IFS= read -r slug; do
+            [[ -n "$slug" ]] && existing_slugs+=("$slug")
+        done < <(grep -oP "${env_prefix}\K[A-Z0-9_]+(?=_TOKEN)" "$primary_path/.env" 2>/dev/null | tr '[:upper:]_' '[:lower:]-' | sort -u)
+    fi
+
+    local env_content=""
+    local items_configured=0
+
+    # Show existing items
+    if [[ ${#existing_slugs[@]} -gt 0 ]]; then
+        echo -e "  ${DIM}Existing items:${NC}"
+        for slug in "${existing_slugs[@]}"; do
+            echo -e "    - $slug"
+        done
+        echo ""
+    fi
+
+    # Main loop for adding/managing items
+    while true; do
+        local action_options=("Add new item" "Done")
+        if [[ ${#existing_slugs[@]} -gt 0 || $items_configured -gt 0 ]]; then
+            action_options=("Add new item" "Remove item" "Done")
+        fi
+
+        local action
+        action=$(choose "What would you like to do?" "${action_options[@]}")
+
+        case "$action" in
+            "Add new item")
+                echo ""
+                local item_env=""
+                local slug_value=""
+
+                # Get item fields
+                local item_field_count
+                item_field_count=$(echo "$item_fields_json" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+
+                for ((j=0; j<item_field_count; j++)); do
+                    local ifield_json iname ilabel itype irequired idefault ihelp
+                    ifield_json=$(echo "$item_fields_json" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)[$j]))")
+
+                    iname=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('name',''))")
+                    ilabel=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('label',''))")
+                    itype=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('type','text'))")
+                    irequired=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('required',False))")
+                    idefault=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('default',''))")
+                    ihelp=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('help',''))")
+
+                    local irequired_mark=""
+                    [[ "$irequired" == "True" ]] && irequired_mark=" ${RED}(required)${NC}"
+
+                    echo -e "  ${BOLD}$ilabel${NC}$irequired_mark"
+                    [[ -n "$ihelp" ]] && echo -e "    ${DIM}$ihelp${NC}"
+
+                    local ivalue
+                    if [[ "$itype" == "password" ]]; then
+                        ivalue=$(input_password "    Enter value")
+                    else
+                        ivalue=$(input_text "    Enter value" "$idefault")
+                    fi
+
+                    # Validate required
+                    if [[ "$irequired" == "True" ]] && [[ -z "$ivalue" ]]; then
+                        style red "Error: $ilabel is required"
+                        continue 2
+                    fi
+
+                    # Store slug for env var naming
+                    if [[ "$iname" == "slug" ]]; then
+                        slug_value="$ivalue"
+                    fi
+
+                    # Build env var name: SENTRY_ORG_<SLUG>_<FIELD>
+                    local slug_upper=$(echo "$slug_value" | tr '[:lower:]-' '[:upper:]_')
+                    local field_upper=$(echo "$iname" | tr '[:lower:]-' '[:upper:]_')
+
+                    # Store temporarily
+                    if [[ "$iname" == "slug" ]]; then
+                        # Slug is used in naming, not stored directly
+                        :
+                    else
+                        item_env+="${env_prefix}${slug_upper}_${field_upper}=\"$ivalue\"\n"
+                    fi
+                done
+
+                if [[ -n "$slug_value" ]]; then
+                    env_content+="$item_env"
+                    existing_slugs+=("$slug_value")
+                    ((items_configured++))
+                    style green "  Added: $slug_value"
+                fi
+                echo ""
+                ;;
+
+            "Remove item")
+                if [[ ${#existing_slugs[@]} -eq 0 && $items_configured -eq 0 ]]; then
+                    style yellow "No items to remove"
+                    continue
+                fi
+
+                local remove_options=("${existing_slugs[@]}" "Cancel")
+                local to_remove
+                to_remove=$(choose "Select item to remove:" "${remove_options[@]}")
+
+                if [[ "$to_remove" != "Cancel" && "$to_remove" != "Back" ]]; then
+                    # Remove from existing_slugs array
+                    local new_slugs=()
+                    for s in "${existing_slugs[@]}"; do
+                        [[ "$s" != "$to_remove" ]] && new_slugs+=("$s")
+                    done
+                    existing_slugs=("${new_slugs[@]}")
+
+                    # Remove from env_content (won't persist removed items)
+                    local slug_upper=$(echo "$to_remove" | tr '[:lower:]-' '[:upper:]_')
+                    env_content=$(echo -e "$env_content" | grep -v "${env_prefix}${slug_upper}_" || true)
+
+                    style yellow "  Removed: $to_remove"
+                fi
+                echo ""
+                ;;
+
+            "Done"|"Back")
+                break
+                ;;
+        esac
+    done
+
+    # Rebuild env_content from existing items that weren't removed
+    # (for items that existed before this session)
+    if [[ -f "$primary_path/.env" ]]; then
+        for slug in "${existing_slugs[@]}"; do
+            local slug_upper=$(echo "$slug" | tr '[:lower:]-' '[:upper:]_')
+            # Check if we already have this in env_content (newly added)
+            if ! echo -e "$env_content" | grep -q "${env_prefix}${slug_upper}_"; then
+                # Copy existing values from old .env
+                while IFS= read -r line; do
+                    env_content+="$line\n"
+                done < <(grep "^${env_prefix}${slug_upper}_" "$primary_path/.env" 2>/dev/null || true)
+            fi
+        done
+    fi
+
+    echo "$env_content"
 }
 
 # Test skill

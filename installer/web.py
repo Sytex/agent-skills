@@ -316,11 +316,39 @@ def get_central_config_path(skill_id):
 def save_skill_config(skill_id, skill_data, config):
     """Save configuration to central location and sync to installed providers."""
     lines = []
+    skill_upper = skill_id.upper().replace("-", "_")
+
     for field in skill_data.get("fields", []):
-        env_var = field.get("env_var", "")
-        value = config.get(field["name"], "")
-        if env_var:
-            lines.append(f'{env_var}="{value}"')
+        field_type = field.get("type", "text")
+        field_name = field.get("name", "")
+
+        # Handle list type fields (e.g., multiple organizations)
+        if field_type == "list":
+            items = config.get(field_name, [])
+            if isinstance(items, list):
+                for item in items:
+                    slug = item.get("slug", "")
+                    if not slug:
+                        continue
+                    slug_upper = slug.upper().replace("-", "_")
+                    env_prefix = f"{skill_upper}_ORG_{slug_upper}_"
+
+                    for item_field in field.get("item_fields", []):
+                        item_field_name = item_field.get("name", "")
+                        if item_field_name == "slug":
+                            continue  # slug is used in naming, not stored directly
+                        item_value = item.get(item_field_name, item_field.get("default", ""))
+                        field_upper = item_field_name.upper().replace("-", "_")
+                        lines.append(f'{env_prefix}{field_upper}="{item_value}"')
+        else:
+            env_var = field.get("env_var", "")
+            value = config.get(field_name, "")
+            if env_var:
+                lines.append(f'{env_var}="{value}"')
+
+    # Handle default_org field if present
+    if "default_org" in config and config["default_org"]:
+        lines.append(f'{skill_upper}_DEFAULT_ORG="{config["default_org"]}"')
 
     content = "\n".join(lines) + "\n"
 
@@ -358,15 +386,57 @@ def get_current_config(skill_id, skill_data):
     if not central_env.exists():
         return config
 
-    for line in central_env.read_text().splitlines():
+    skill_upper = skill_id.upper().replace("-", "_")
+    env_content = central_env.read_text()
+
+    # Parse all env vars
+    env_vars = {}
+    for line in env_content.splitlines():
         line = line.strip()
         if "=" in line:
             key, value = line.split("=", 1)
-            value = value.strip('"').strip("'")
-            for field in skill_data.get("fields", []):
-                if field.get("env_var") == key:
-                    config[field["name"]] = value
-                    break
+            env_vars[key] = value.strip('"').strip("'")
+
+    for field in skill_data.get("fields", []):
+        field_type = field.get("type", "text")
+        field_name = field.get("name", "")
+
+        # Handle list type fields
+        if field_type == "list":
+            items = []
+            # Find all organization slugs from env vars
+            # Pattern: SENTRY_ORG_<SLUG>_TOKEN
+            env_prefix = f"{skill_upper}_ORG_"
+            slugs = set()
+            for key in env_vars:
+                if key.startswith(env_prefix) and key.endswith("_TOKEN"):
+                    # Extract slug: SENTRY_ORG_SYTEX_EU_TOKEN -> sytex-eu
+                    slug_part = key[len(env_prefix):-6]  # Remove prefix and _TOKEN
+                    slug = slug_part.lower().replace("_", "-")
+                    slugs.add(slug)
+
+            for slug in sorted(slugs):
+                slug_upper = slug.upper().replace("-", "_")
+                item = {"slug": slug}
+                for item_field in field.get("item_fields", []):
+                    item_field_name = item_field.get("name", "")
+                    if item_field_name == "slug":
+                        continue
+                    field_upper = item_field_name.upper().replace("-", "_")
+                    env_key = f"{env_prefix}{slug_upper}_{field_upper}"
+                    item[item_field_name] = env_vars.get(env_key, item_field.get("default", ""))
+                items.append(item)
+
+            config[field_name] = items
+        else:
+            env_var = field.get("env_var", "")
+            if env_var and env_var in env_vars:
+                config[field_name] = env_vars[env_var]
+
+    # Get default_org if present
+    default_org_key = f"{skill_upper}_DEFAULT_ORG"
+    if default_org_key in env_vars:
+        config["default_org"] = env_vars[default_org_key]
 
     return config
 

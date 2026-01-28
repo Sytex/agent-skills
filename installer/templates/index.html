@@ -627,6 +627,110 @@
                 transform: rotate(360deg);
             }
         }
+
+        /* List field styles */
+        .list-field {
+            margin-bottom: 1.5rem;
+        }
+
+        .list-items {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .list-item {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .list-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .list-item-title {
+            font-weight: 500;
+            color: var(--accent);
+        }
+
+        .list-item-remove {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 1.25rem;
+            padding: 0.25rem;
+            line-height: 1;
+        }
+
+        .list-item-remove:hover {
+            color: var(--red);
+        }
+
+        .list-item-fields {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .list-item-field {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .list-item-field label {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+        }
+
+        .list-item-field input {
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+
+        .list-item-field input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .add-item-btn {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1rem;
+            background: none;
+            border: 1px dashed var(--border);
+            border-radius: 8px;
+            color: var(--text-dim);
+            cursor: pointer;
+            width: 100%;
+            justify-content: center;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+
+        .add-item-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .list-empty {
+            text-align: center;
+            padding: 1.5rem;
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
     </style>
 </head>
 <body>
@@ -918,6 +1022,12 @@
                     html += '<form id="config-form">';
 
                     for (const field of skill.fields || []) {
+                        // Handle list type fields
+                        if (field.type === 'list') {
+                            html += renderListField(field, skill.config?.[field.name] || []);
+                            continue;
+                        }
+
                         const value = skill.config?.[field.name] || field.default || '';
                         const isPassword = field.type === 'password';
 
@@ -971,6 +1081,148 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // Render a list-type field (e.g., multiple organizations)
+        function renderListField(field, items) {
+            const fieldName = field.name;
+            const itemFields = field.item_fields || [];
+
+            let html = `<div class="list-field" data-field-name="${fieldName}">`;
+            html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">`;
+            html += `<label class="form-label" style="margin:0">${field.label} ${field.required ? '<span class="required">*</span>' : ''}</label>`;
+            html += `</div>`;
+
+            if (field.help) {
+                html += `<div class="form-help" style="margin-bottom:0.75rem">${field.help}</div>`;
+            }
+
+            html += `<div class="list-items" id="list-items-${fieldName}">`;
+
+            if (items.length === 0) {
+                html += `<div class="list-empty">No items configured. Click "Add" to add one.</div>`;
+            } else {
+                for (let i = 0; i < items.length; i++) {
+                    html += renderListItem(fieldName, itemFields, items[i], i);
+                }
+            }
+
+            html += `</div>`;
+
+            html += `<button type="button" class="add-item-btn" onclick="addListItem('${fieldName}')">+ Add ${field.label.replace(/s$/, '')}</button>`;
+            html += `</div>`;
+
+            return html;
+        }
+
+        // Render a single item in a list field
+        function renderListItem(fieldName, itemFields, item, index) {
+            const slug = item.slug || `Item ${index + 1}`;
+
+            let html = `<div class="list-item" data-index="${index}">`;
+            html += `<div class="list-item-header">`;
+            html += `<span class="list-item-title">${escapeHtml(slug)}</span>`;
+            html += `<button type="button" class="list-item-remove" onclick="removeListItem('${fieldName}', ${index})" title="Remove">×</button>`;
+            html += `</div>`;
+
+            html += `<div class="list-item-fields">`;
+
+            for (const itemField of itemFields) {
+                const value = item[itemField.name] || itemField.default || '';
+                const isPassword = itemField.type === 'password';
+                const inputType = isPassword ? 'password' : 'text';
+                const displayValue = isPassword && value ? '' : escapeHtml(value);
+                const placeholder = isPassword && value ? '••••••••••••••••' : (itemField.help || '');
+
+                html += `<div class="list-item-field">`;
+                html += `<label>${itemField.label}${itemField.required ? ' *' : ''}</label>`;
+                html += `<input type="${inputType}" name="${fieldName}[${index}][${itemField.name}]" value="${displayValue}" placeholder="${escapeHtml(placeholder)}" ${itemField.required ? 'required' : ''}>`;
+                html += `</div>`;
+            }
+
+            html += `</div>`;
+            html += `</div>`;
+
+            return html;
+        }
+
+        // Add a new item to a list field
+        function addListItem(fieldName) {
+            const field = currentSkill.fields.find(f => f.name === fieldName);
+            if (!field) return;
+
+            const container = document.getElementById(`list-items-${fieldName}`);
+
+            // Remove empty message if present
+            const emptyMsg = container.querySelector('.list-empty');
+            if (emptyMsg) emptyMsg.remove();
+
+            const index = container.querySelectorAll('.list-item').length;
+            const newItem = {};
+
+            // Set defaults
+            for (const itemField of field.item_fields || []) {
+                newItem[itemField.name] = itemField.default || '';
+            }
+
+            const html = renderListItem(fieldName, field.item_fields || [], newItem, index);
+            container.insertAdjacentHTML('beforeend', html);
+
+            // Focus first input of new item
+            const newItemEl = container.lastElementChild;
+            const firstInput = newItemEl.querySelector('input');
+            if (firstInput) firstInput.focus();
+        }
+
+        // Remove an item from a list field
+        function removeListItem(fieldName, index) {
+            const container = document.getElementById(`list-items-${fieldName}`);
+            const items = container.querySelectorAll('.list-item');
+
+            if (items[index]) {
+                items[index].remove();
+
+                // Re-index remaining items
+                const remainingItems = container.querySelectorAll('.list-item');
+                remainingItems.forEach((item, i) => {
+                    item.dataset.index = i;
+                    // Update input names
+                    item.querySelectorAll('input').forEach(input => {
+                        input.name = input.name.replace(/\[\d+\]/, `[${i}]`);
+                    });
+                });
+
+                // Show empty message if no items left
+                if (remainingItems.length === 0) {
+                    container.innerHTML = `<div class="list-empty">No items configured. Click "Add" to add one.</div>`;
+                }
+            }
+        }
+
+        // Collect list field data from form
+        function collectListFieldData(fieldName) {
+            const container = document.getElementById(`list-items-${fieldName}`);
+            if (!container) return [];
+
+            const items = [];
+            const itemEls = container.querySelectorAll('.list-item');
+
+            itemEls.forEach((itemEl, index) => {
+                const item = {};
+                itemEl.querySelectorAll('input').forEach(input => {
+                    // Parse field name from input name: fieldName[index][subfield]
+                    const match = input.name.match(/\[(\d+)\]\[([^\]]+)\]$/);
+                    if (match) {
+                        const subfield = match[2];
+                        item[subfield] = input.value;
+                    }
+                });
+                if (Object.keys(item).length > 0) {
+                    items.push(item);
+                }
+            });
+
+            return items;
         }
 
         // Show toast
@@ -1028,12 +1280,31 @@
             const config = {};
 
             for (const field of currentSkill.fields || []) {
-                const value = formData.get(field.name);
-                // Keep existing password if not changed
-                if (field.type === 'password' && !value && currentSkill.config?.[field.name]) {
-                    config[field.name] = currentSkill.config[field.name];
+                // Handle list type fields
+                if (field.type === 'list') {
+                    const items = collectListFieldData(field.name);
+                    // Preserve passwords for existing items
+                    const existingItems = currentSkill.config?.[field.name] || [];
+                    items.forEach((item, index) => {
+                        for (const itemField of field.item_fields || []) {
+                            if (itemField.type === 'password' && !item[itemField.name]) {
+                                // Find matching existing item by slug
+                                const existingItem = existingItems.find(e => e.slug === item.slug);
+                                if (existingItem && existingItem[itemField.name]) {
+                                    item[itemField.name] = existingItem[itemField.name];
+                                }
+                            }
+                        }
+                    });
+                    config[field.name] = items;
                 } else {
-                    config[field.name] = value;
+                    const value = formData.get(field.name);
+                    // Keep existing password if not changed
+                    if (field.type === 'password' && !value && currentSkill.config?.[field.name]) {
+                        config[field.name] = currentSkill.config[field.name];
+                    } else {
+                        config[field.name] = value;
+                    }
                 }
             }
 
