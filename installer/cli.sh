@@ -877,20 +877,35 @@ configure_list_field() {
     help=$(echo "$field_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('help',''))")
     item_fields_json=$(echo "$field_json" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin).get('item_fields', [])))")
 
-    # Env prefix based on skill and field name (e.g., SENTRY_ORG_)
+    # Env prefix based on skill and field name (e.g., SENTRY_ORG_, DATABASE_DB_)
     local skill_upper=$(echo "$skill" | tr '[:lower:]-' '[:upper:]_')
-    env_prefix="${skill_upper}_ORG_"
+
+    # Determine list prefix based on field name
+    local list_prefix="ORG"
+    if [[ "$name" == "databases" ]]; then
+        list_prefix="DB"
+    elif [[ "$name" == "organizations" ]]; then
+        list_prefix="ORG"
+    fi
+
+    env_prefix="${skill_upper}_${list_prefix}_"
 
     echo -e "${BOLD}$label${NC}" >&2
     [[ -n "$help" ]] && echo -e "  ${DIM}$help${NC}" >&2
     echo "" >&2
 
     # Get existing items from .env (compatible with macOS BSD grep)
+    # Use different marker field based on list type (TOKEN for orgs, HOST for databases)
+    local marker_suffix="_TOKEN"
+    if [[ "$name" == "databases" ]]; then
+        marker_suffix="_HOST"
+    fi
+
     local existing_slugs=()
     if [[ -f "$primary_path/.env" ]]; then
         while IFS= read -r slug; do
             [[ -n "$slug" ]] && existing_slugs+=("$slug")
-        done < <(grep -o "${env_prefix}[A-Z0-9_]*_TOKEN" "$primary_path/.env" 2>/dev/null | sed "s/^${env_prefix}//" | sed 's/_TOKEN$//' | tr '[:upper:]_' '[:lower:]-' | sort -u)
+        done < <(grep -o "${env_prefix}[A-Z0-9_]*${marker_suffix}" "$primary_path/.env" 2>/dev/null | sed "s/^${env_prefix}//" | sed "s/${marker_suffix}$//" | tr '[:upper:]_' '[:lower:]-' | sort -u)
     fi
 
     local env_content=""
