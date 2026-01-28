@@ -2,8 +2,19 @@
   "name": "database",
   "title": "Database",
   "description": "Read-only MySQL/MariaDB client for querying databases. Supports multiple database connections.",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "setup_instructions": "Add your database connections. You can configure multiple databases with different credentials.",
+  "dependencies": [
+    {
+      "name": "mysql/mariadb client",
+      "check": "mysql --version",
+      "install": {
+        "darwin": "brew install mariadb",
+        "linux": "sudo apt-get install -y mariadb-client || sudo yum install -y mariadb",
+        "windows": "winget install MariaDB.Server"
+      }
+    }
+  ],
   "fields": [
     {
       "name": "databases",

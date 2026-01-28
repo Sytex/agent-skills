@@ -503,6 +503,93 @@ ensure_providers() {
 }
 
 # ============================================================================
+# Dependencies Functions
+# ============================================================================
+
+# Detect OS
+get_os() {
+    case "$(uname -s)" in
+        Darwin*) echo "darwin" ;;
+        Linux*) echo "linux" ;;
+        MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
+        *) echo "unknown" ;;
+    esac
+}
+
+# Check and install dependencies for a skill
+check_dependencies() {
+    local skill="$1"
+    local skill_json="$SKILLS_DIR/$skill/skill.json"
+
+    local deps_count
+    deps_count=$(python3 -c "import json; print(len(json.load(open('$skill_json')).get('dependencies', [])))" 2>/dev/null || echo "0")
+
+    [[ "$deps_count" == "0" ]] && return 0
+
+    local os=$(get_os)
+    local missing_deps=()
+
+    for ((i=0; i<deps_count; i++)); do
+        local dep_json name check_cmd install_cmd
+        dep_json=$(python3 -c "import json; print(json.dumps(json.load(open('$skill_json'))['dependencies'][$i]))")
+
+        name=$(echo "$dep_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('name',''))")
+        check_cmd=$(echo "$dep_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('check',''))")
+        install_cmd=$(echo "$dep_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('install',{}).get('$os',''))")
+
+        if [[ -n "$check_cmd" ]] && ! eval "$check_cmd" &>/dev/null; then
+            missing_deps+=("$name|$install_cmd")
+        fi
+    done
+
+    [[ ${#missing_deps[@]} -eq 0 ]] && return 0
+
+    echo ""
+    style yellow "Missing dependencies:"
+    for dep in "${missing_deps[@]}"; do
+        local dep_name="${dep%%|*}"
+        echo -e "  ${RED}✗${NC} $dep_name"
+    done
+    echo ""
+
+    if confirm "Install missing dependencies?"; then
+        for dep in "${missing_deps[@]}"; do
+            local dep_name="${dep%%|*}"
+            local dep_install="${dep##*|}"
+
+            if [[ -z "$dep_install" ]]; then
+                style red "No install command for $dep_name on $os"
+                continue
+            fi
+
+            echo ""
+            style cyan "Installing $dep_name..."
+            echo -e "${DIM}Running: $dep_install${NC}"
+            echo ""
+
+            if eval "$dep_install"; then
+                style green "✓ $dep_name installed"
+            else
+                style red "✗ Failed to install $dep_name"
+                echo ""
+                echo "You can install it manually with:"
+                echo -e "  ${CYAN}$dep_install${NC}"
+                return 1
+            fi
+        done
+        echo ""
+        style green "All dependencies installed"
+    else
+        echo ""
+        style yellow "Skipping dependency installation"
+        echo "You may need to install them manually for the skill to work."
+        return 1
+    fi
+
+    return 0
+}
+
+# ============================================================================
 # Skill Functions
 # ============================================================================
 
@@ -703,7 +790,16 @@ get_actions() {
     # Global actions
     skill_has_test "$skill" && echo "Test"
     skill_needs_config "$skill" && echo "Edit credentials"
+    skill_has_dependencies "$skill" && echo "Check dependencies"
     echo "Back"
+}
+
+# Check if skill has dependencies
+skill_has_dependencies() {
+    local skill="$1"
+    local deps_count
+    deps_count=$(python3 -c "import json; print(len(json.load(open('$SKILLS_DIR/$skill/skill.json')).get('dependencies', [])))" 2>/dev/null || echo "0")
+    [[ "$deps_count" -gt 0 ]]
 }
 
 # Install skill files to a single provider
@@ -1128,6 +1224,9 @@ uninstall_skill() {
 do_install() {
     local skill="$1"
 
+    # Check dependencies first
+    check_dependencies "$skill" || return 1
+
     style cyan "Installing $skill..."
     install_files "$skill"
     style green "Files installed"
@@ -1295,6 +1394,7 @@ skill_menu() {
             "Remove from Gemini CLI") uninstall_from_provider "$skill" "gemini"; style yellow "Removed from Gemini CLI" ;;
             "Test") do_test "$skill" ;;
             "Edit credentials") do_configure "$skill" ;;
+            "Check dependencies") check_dependencies "$skill" ;;
             "─────────────") continue ;;
             "Back") break ;;
         esac

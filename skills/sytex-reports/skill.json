@@ -1,0 +1,8 @@
+{
+  "name": "sytex-reports",
+  "title": "Sytex Reports",
+  "description": "Generate reports from Sytex data (tasks, projects, forms, users, organizations). Uses the database skill to query Sytex databases directly.",
+  "version": "1.0.0",
+  "files": ["SKILL.md"],
+  "fields": []
+}

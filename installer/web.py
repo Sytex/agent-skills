@@ -172,6 +172,55 @@ def update_repo():
     return {"success": True, "message": "Skills updated"}
 
 
+def get_os():
+    """Detect operating system."""
+    import platform
+    system = platform.system().lower()
+    if system == "darwin":
+        return "darwin"
+    elif system == "linux":
+        return "linux"
+    elif system == "windows":
+        return "windows"
+    return "unknown"
+
+
+def check_dependencies(skill_data):
+    """Check if skill dependencies are installed."""
+    deps = skill_data.get("dependencies", [])
+    if not deps:
+        return {"has_dependencies": False, "all_installed": True, "dependencies": []}
+
+    os_name = get_os()
+    results = []
+
+    for dep in deps:
+        name = dep.get("name", "Unknown")
+        check_cmd = dep.get("check", "")
+        install_cmds = dep.get("install", {})
+        install_cmd = install_cmds.get(os_name, "")
+
+        installed = False
+        if check_cmd:
+            result = subprocess.run(check_cmd, shell=True, capture_output=True)
+            installed = result.returncode == 0
+
+        results.append({
+            "name": name,
+            "installed": installed,
+            "install_command": install_cmd,
+            "os": os_name
+        })
+
+    all_installed = all(d["installed"] for d in results)
+    return {
+        "has_dependencies": True,
+        "all_installed": all_installed,
+        "dependencies": results,
+        "os": os_name
+    }
+
+
 def compute_skill_checksum(skill_id, skill_data):
     """Compute checksum of skill files in the repo."""
     skill_dir = SKILLS_DIR / skill_id
@@ -658,12 +707,21 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_json(get_skills())
         elif path == "/api/check-updates":
             self.send_json(check_for_updates())
+        elif path.startswith("/api/skills/") and path.endswith("/dependencies"):
+            skill_id = path.split("/")[3]
+            skills = {s["id"]: s for s in get_skills()}
+            if skill_id in skills:
+                result = check_dependencies(skills[skill_id])
+                self.send_json(result)
+            else:
+                self.send_json({"error": "Skill not found"}, 404)
         elif path.startswith("/api/skills/"):
             skill_id = path.split("/")[3]
             skills = {s["id"]: s for s in get_skills()}
             if skill_id in skills:
                 skill = skills[skill_id]
                 skill["config"] = get_current_config(skill_id, skill)
+                skill["dependencies_status"] = check_dependencies(skill)
                 self.send_json(skill)
             else:
                 self.send_json({"error": "Skill not found"}, 404)

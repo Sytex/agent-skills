@@ -206,11 +206,14 @@ cmd_dbs() {
         echo -e "    User: $user"
 
         # Test connection
-        local test_result=$(mysql -h "$host" -P "${port:-3306}" -u "$user" -p"$password" --database="$database" --connect-timeout=5 -e "SELECT 1;" 2>&1)
+        local mysql_cmd=(mysql -h "$host" -P "${port:-3306}" -u "$user" -p"$password" --connect-timeout=5)
+        [[ -n "$database" ]] && mysql_cmd+=(--database="$database")
+        local test_result=$("${mysql_cmd[@]}" -e "SELECT 1;" 2>&1)
         if echo "$test_result" | grep -q "^1$"; then
             echo -e "    Status: ${GREEN}✓ connected${NC}"
         else
-            echo -e "    Status: ${RED}✗ error${NC}"
+            local error_msg=$(echo "$test_result" | grep -i "error" | head -1)
+            echo -e "    Status: ${RED}✗ ${error_msg:-connection failed}${NC}"
         fi
         echo ""
     done < <(get_configured_dbs)
