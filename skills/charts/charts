@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+"""
+Charts skill - Generate charts and graphs from data.
+"""
+
+import sys
+import os
+import json
+import csv
+import argparse
+from datetime import datetime
+from io import StringIO
+
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+
+
+def parse_list(value):
+    """Parse comma-separated string into list."""
+    if not value:
+        return []
+    return [v.strip() for v in value.split(',')]
+
+
+def parse_numbers(value):
+    """Parse comma-separated numbers into list of floats."""
+    if not value:
+        return []
+    return [float(v.strip()) for v in value.split(',')]
+
+
+def read_stdin():
+    """Read CSV data from stdin if available."""
+    if sys.stdin.isatty():
+        return None
+    return sys.stdin.read()
+
+
+def load_data(file_path=None, stdin_data=None):
+    """Load data from file or stdin. Returns list of dicts."""
+    content = None
+
+    if file_path:
+        with open(file_path, 'r') as f:
+            content = f.read()
+    elif stdin_data:
+        content = stdin_data
+
+    if not content:
+        return None
+
+    content = content.strip()
+
+    # Try JSON first
+    if content.startswith('[') or content.startswith('{'):
+        data = json.loads(content)
+        if isinstance(data, dict):
+            data = [data]
+        return data
+
+    # Assume CSV
+    reader = csv.DictReader(StringIO(content))
+    return list(reader)
+
+
+def generate_output_path(chart_type):
+    """Generate a unique output path in /tmp."""
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    return f'/tmp/chart_{chart_type}_{timestamp}.png'
+
+
+def save_and_output(fig, output_path, open_after):
+    """Save figure and optionally open it."""
+    fig.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close(fig)
+
+    if open_after:
+        if sys.platform == 'darwin':
+            os.system(f'open "{output_path}"')
+        elif sys.platform.startswith('linux'):
+            os.system(f'xdg-open "{output_path}"')
+
+    print(output_path)
+
+
+def cmd_bar(args):
+    """Generate a bar chart."""
+    stdin_data = read_stdin()
+    data = load_data(args.file, stdin_data)
+
+    if data and args.x and args.y:
+        labels = [str(row[args.x]) for row in data]
+        values = [float(row[args.y]) for row in data]
+    elif args.labels and args.values:
+        labels = parse_list(args.labels)
+        values = parse_numbers(args.values)
+    else:
+        print("Error: Provide --labels and --values, or --file with --x and --y", file=sys.stderr)
+        sys.exit(1)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    if args.horizontal:
+        ax.barh(labels, values, color='#4A90D9')
+        if args.y:
+            ax.set_xlabel(args.y)
+        if args.x:
+            ax.set_ylabel(args.x)
+    else:
+        ax.bar(labels, values, color='#4A90D9')
+        if args.x:
+            ax.set_xlabel(args.x)
+        if args.y:
+            ax.set_ylabel(args.y)
+        plt.xticks(rotation=45, ha='right')
+
+    if args.title:
+        ax.set_title(args.title)
+
+    output = args.output or generate_output_path('bar')
+    save_and_output(fig, output, args.open)
+
+
+def cmd_line(args):
+    """Generate a line chart."""
+    stdin_data = read_stdin()
+    data = load_data(args.file, stdin_data)
+
+    if data and args.x and args.y:
+        x_vals = [row[args.x] for row in data]
+        # Try to convert to numbers if possible
+        try:
+            x_vals = [float(x) for x in x_vals]
+        except ValueError:
+            pass
+        y_vals = [float(row[args.y]) for row in data]
+    elif args.labels and args.values:
+        x_vals = parse_list(args.labels)
+        y_vals = parse_numbers(args.values)
+    else:
+        print("Error: Provide --labels and --values, or --file with --x and --y", file=sys.stderr)
+        sys.exit(1)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(x_vals, y_vals, marker='o', linewidth=2, markersize=6, color='#4A90D9')
+
+    if args.x:
+        ax.set_xlabel(args.x)
+    if args.y:
+        ax.set_ylabel(args.y)
+    if args.title:
+        ax.set_title(args.title)
+
+    plt.xticks(rotation=45, ha='right')
+    ax.grid(True, alpha=0.3)
+
+    output = args.output or generate_output_path('line')
+    save_and_output(fig, output, args.open)
+
+
+def cmd_pie(args):
+    """Generate a pie chart."""
+    stdin_data = read_stdin()
+    data = load_data(args.file, stdin_data)
+
+    if data and args.x and args.y:
+        labels = [str(row[args.x]) for row in data]
+        values = [float(row[args.y]) for row in data]
+    elif args.labels and args.values:
+        labels = parse_list(args.labels)
+        values = parse_numbers(args.values)
+    else:
+        print("Error: Provide --labels and --values, or --file with --x and --y", file=sys.stderr)
+        sys.exit(1)
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.pie(values, labels=labels, autopct='%1.1f%%', startangle=90)
+    ax.axis('equal')
+
+    if args.title:
+        ax.set_title(args.title)
+
+    output = args.output or generate_output_path('pie')
+    save_and_output(fig, output, args.open)
+
+
+def cmd_scatter(args):
+    """Generate a scatter plot."""
+    stdin_data = read_stdin()
+    data = load_data(args.file, stdin_data)
+
+    if not data or not args.x or not args.y:
+        print("Error: Provide --file with --x and --y columns", file=sys.stderr)
+        sys.exit(1)
+
+    x_vals = [float(row[args.x]) for row in data]
+    y_vals = [float(row[args.y]) for row in data]
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.scatter(x_vals, y_vals, alpha=0.6, color='#4A90D9')
+
+    ax.set_xlabel(args.x)
+    ax.set_ylabel(args.y)
+    if args.title:
+        ax.set_title(args.title)
+
+    ax.grid(True, alpha=0.3)
+
+    output = args.output or generate_output_path('scatter')
+    save_and_output(fig, output, args.open)
+
+
+def cmd_histogram(args):
+    """Generate a histogram."""
+    stdin_data = read_stdin()
+    data = load_data(args.file, stdin_data)
+
+    if data and args.column:
+        values = [float(row[args.column]) for row in data]
+    elif args.values:
+        values = parse_numbers(args.values)
+    else:
+        print("Error: Provide --values, or --file with --column", file=sys.stderr)
+        sys.exit(1)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.hist(values, bins=args.bins, color='#4A90D9', edgecolor='white', alpha=0.7)
+
+    if args.column:
+        ax.set_xlabel(args.column)
+    ax.set_ylabel('Frequency')
+    if args.title:
+        ax.set_title(args.title)
+
+    ax.grid(True, alpha=0.3, axis='y')
+
+    output = args.output or generate_output_path('histogram')
+    save_and_output(fig, output, args.open)
+
+
+def cmd_help(args=None):
+    """Show help information."""
+    help_text = """Charts - Generate charts and graphs from data
+
+COMMANDS:
+  bar        Generate a bar chart
+  line       Generate a line chart
+  pie        Generate a pie chart
+  scatter    Generate a scatter plot
+  histogram  Generate a histogram
+  help       Show this help message
+
+COMMON OPTIONS:
+  --title TEXT      Chart title
+  --output FILE     Output file path (default: /tmp/chart_<type>_<timestamp>.png)
+  --open            Open the chart after generating
+
+DATA INPUT (choose one):
+  --file FILE       Read data from CSV or JSON file
+  --labels L1,L2    Comma-separated labels (for bar, line, pie)
+  --values V1,V2    Comma-separated values
+  <stdin>           Pipe data from another command
+
+COLUMN OPTIONS (when using --file):
+  --x COLUMN        Column name for X axis / labels
+  --y COLUMN        Column name for Y axis / values
+  --column COL      Column name for histogram
+
+CHART-SPECIFIC OPTIONS:
+  --horizontal      Horizontal bar chart (bar only)
+  --bins N          Number of bins (histogram only, default: 10)
+
+EXAMPLES:
+  # Bar chart from inline data
+  charts bar --labels "Jan,Feb,Mar" --values "100,150,120" --title "Sales"
+
+  # Line chart from CSV file
+  charts line --file data.csv --x date --y revenue --title "Revenue Over Time"
+
+  # Pie chart from database query
+  database query "SELECT status, COUNT(*) as count FROM orders GROUP BY status" | charts pie --x status --y count
+
+  # Scatter plot
+  charts scatter --file data.csv --x height --y weight --title "Height vs Weight"
+
+  # Histogram
+  charts histogram --file ages.csv --column age --bins 20 --title "Age Distribution"
+"""
+    print(help_text)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Generate charts and graphs', add_help=False)
+    subparsers = parser.add_subparsers(dest='command')
+
+    # Common arguments
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument('--title', help='Chart title')
+    common.add_argument('--output', '-o', help='Output file path')
+    common.add_argument('--open', action='store_true', help='Open chart after generating')
+    common.add_argument('--file', '-f', help='Input CSV or JSON file')
+    common.add_argument('--labels', help='Comma-separated labels')
+    common.add_argument('--values', help='Comma-separated values')
+    common.add_argument('--x', help='X column name')
+    common.add_argument('--y', help='Y column name')
+
+    # Bar
+    bar_parser = subparsers.add_parser('bar', parents=[common], help='Bar chart')
+    bar_parser.add_argument('--horizontal', action='store_true', help='Horizontal bars')
+
+    # Line
+    subparsers.add_parser('line', parents=[common], help='Line chart')
+
+    # Pie
+    subparsers.add_parser('pie', parents=[common], help='Pie chart')
+
+    # Scatter
+    subparsers.add_parser('scatter', parents=[common], help='Scatter plot')
+
+    # Histogram
+    hist_parser = subparsers.add_parser('histogram', parents=[common], help='Histogram')
+    hist_parser.add_argument('--column', help='Column for histogram')
+    hist_parser.add_argument('--bins', type=int, default=10, help='Number of bins')
+
+    # Help
+    subparsers.add_parser('help', help='Show help')
+
+    args = parser.parse_args()
+
+    commands = {
+        'bar': cmd_bar,
+        'line': cmd_line,
+        'pie': cmd_pie,
+        'scatter': cmd_scatter,
+        'histogram': cmd_histogram,
+        'help': cmd_help,
+    }
+
+    if not args.command or args.command not in commands:
+        cmd_help()
+        sys.exit(0 if not args.command else 1)
+
+    commands[args.command](args)
+
+
+if __name__ == '__main__':
+    main()
