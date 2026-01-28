@@ -29,10 +29,27 @@ AVAILABLE_PROVIDERS = {
 
 
 def init_config():
-    """Initialize config directory and file."""
+    """Initialize config directory and file with all providers enabled by default."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     if not CONFIG_FILE.exists():
-        CONFIG_FILE.write_text('{"providers":{}}')
+        default_config = {
+            "providers": {
+                "claude": {
+                    "enabled": True,
+                    "path": str(Path.home() / ".claude/skills")
+                },
+                "codex": {
+                    "enabled": True,
+                    "path": str(Path.home() / ".codex/skills")
+                },
+                "gemini": {
+                    "enabled": True,
+                    "path": str(Path.home() / ".gemini/skills")
+                }
+            },
+            "selected_provider": "claude"
+        }
+        CONFIG_FILE.write_text(json.dumps(default_config, indent=2))
 
 
 def load_config():
