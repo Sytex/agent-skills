@@ -1383,12 +1383,12 @@ skill_menu() {
         action=$(choose "Select action:" "${actions[@]}")
 
         case "$action" in
-            "Install in Claude Code") install_files_to_provider "$skill" "claude"; style green "Installed in Claude Code" ;;
-            "Install in Codex CLI") install_files_to_provider "$skill" "codex"; style green "Installed in Codex CLI" ;;
-            "Install in Gemini CLI") install_files_to_provider "$skill" "gemini"; style green "Installed in Gemini CLI" ;;
-            "Update in Claude Code") install_files_to_provider "$skill" "claude"; style green "Updated in Claude Code" ;;
-            "Update in Codex CLI") install_files_to_provider "$skill" "codex"; style green "Updated in Codex CLI" ;;
-            "Update in Gemini CLI") install_files_to_provider "$skill" "gemini"; style green "Updated in Gemini CLI" ;;
+            "Install in Claude Code") check_dependencies "$skill" && install_files_to_provider "$skill" "claude" && style green "Installed in Claude Code" ;;
+            "Install in Codex CLI") check_dependencies "$skill" && install_files_to_provider "$skill" "codex" && style green "Installed in Codex CLI" ;;
+            "Install in Gemini CLI") check_dependencies "$skill" && install_files_to_provider "$skill" "gemini" && style green "Installed in Gemini CLI" ;;
+            "Update in Claude Code") check_dependencies "$skill" && install_files_to_provider "$skill" "claude" && style green "Updated in Claude Code" ;;
+            "Update in Codex CLI") check_dependencies "$skill" && install_files_to_provider "$skill" "codex" && style green "Updated in Codex CLI" ;;
+            "Update in Gemini CLI") check_dependencies "$skill" && install_files_to_provider "$skill" "gemini" && style green "Updated in Gemini CLI" ;;
             "Remove from Claude Code") uninstall_from_provider "$skill" "claude"; style yellow "Removed from Claude Code" ;;
             "Remove from Codex CLI") uninstall_from_provider "$skill" "codex"; style yellow "Removed from Codex CLI" ;;
             "Remove from Gemini CLI") uninstall_from_provider "$skill" "gemini"; style yellow "Removed from Gemini CLI" ;;
