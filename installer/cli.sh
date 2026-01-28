@@ -319,13 +319,15 @@ set_provider() {
     local path="$3"
 
     init_config
+    local py_enabled="False"
+    [[ "$enabled" == "true" ]] && py_enabled="True"
     python3 -c "
 import json
 with open('$CONFIG_FILE', 'r') as f:
     data = json.load(f)
 if 'providers' not in data:
     data['providers'] = {}
-data['providers']['$provider'] = {'enabled': $enabled, 'path': '$path'}
+data['providers']['$provider'] = {'enabled': $py_enabled, 'path': '$path'}
 with open('$CONFIG_FILE', 'w') as f:
     json.dump(data, f, indent=2)
 "
