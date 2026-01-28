@@ -89,6 +89,76 @@ Use `sytex-db` when you need to:
 5. **Be specific**: Include relevant WHERE clauses to filter data
 6. **Protect sensitive data**: Don't expose passwords, tokens, or PII unnecessarily
 
+### CRITICAL: Always Check Schema Before Writing Queries
+
+**⚠️ MANDATORY PROCEDURE: Before writing ANY custom query, you MUST verify the table schema first.**
+
+This prevents column name errors and ensures your queries work correctly.
+
+#### Workflow:
+
+1. **Identify the tables** you need to query
+2. **Check the schema** of each table using `describe`
+3. **Write your query** using the actual column names from the schema
+4. **Execute the query**
+
+#### Example Workflow:
+
+**❌ WRONG - Don't do this:**
+```bash
+# Directly querying without checking schema
+sytex-db query "SELECT id, name, status FROM projects_task LIMIT 5"
+# Error: Unknown column 'status' - should be 'status_id'
+```
+
+**✅ CORRECT - Always do this:**
+
+```bash
+# Step 1: Check the schema first
+sytex-db describe projects_task
+
+# Step 2: Review the output to see actual columns
+# Output shows: id, code, name, status_id, plan_date, etc.
+
+# Step 3: Write query with correct column names
+sytex-db query "SELECT id, code, name, status_id, plan_date FROM projects_task LIMIT 5"
+```
+
+#### Real Example with JOINs:
+
+```bash
+# Step 1: Check both table schemas
+sytex-db describe sytexauth_user
+sytex-db describe people_profile
+
+# Step 2: Identify join columns and field names
+# sytexauth_user has: id, email, profile_id
+# people_profile has: id, name
+
+# Step 3: Write the JOIN query correctly
+sytex-db query "
+SELECT u.id, u.email, p.name
+FROM sytexauth_user u
+JOIN people_profile p ON u.profile_id = p.id
+WHERE u.id = 1
+"
+```
+
+#### Quick Schema Reference Commands:
+
+```bash
+# List all tables
+sytex-db tables
+
+# Describe a specific table (shows columns, types, keys)
+sytex-db describe projects_task
+
+# Describe multiple tables before complex queries
+sytex-db describe sytexauth_user
+sytex-db describe people_profile
+sytex-db describe projects_project
+```
+
 ### Query Examples
 
 **Find tasks by status:**
