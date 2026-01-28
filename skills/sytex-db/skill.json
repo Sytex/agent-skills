@@ -1,0 +1,53 @@
+{
+  "name": "sytex-db",
+  "title": "Sytex Database",
+  "description": "Read-only MySQL/MariaDB client for querying Sytex database",
+  "version": "1.0.0",
+  "setup_instructions": "Configure read-only database credentials. Make sure the database user has SELECT permissions only.",
+  "fields": [
+    {
+      "name": "host",
+      "label": "Database Host",
+      "type": "text",
+      "required": true,
+      "env_var": "DB_HOST",
+      "default": "localhost",
+      "help": "Database server hostname or IP address"
+    },
+    {
+      "name": "port",
+      "label": "Database Port",
+      "type": "text",
+      "required": false,
+      "env_var": "DB_PORT",
+      "default": "3306",
+      "help": "Database server port (default: 3306 for MySQL)"
+    },
+    {
+      "name": "database",
+      "label": "Database Name",
+      "type": "text",
+      "required": true,
+      "env_var": "DB_NAME",
+      "help": "Name of the database to connect to"
+    },
+    {
+      "name": "user",
+      "label": "Database User",
+      "type": "text",
+      "required": true,
+      "env_var": "DB_USER",
+      "help": "Database username (should have read-only permissions)"
+    },
+    {
+      "name": "password",
+      "label": "Database Password",
+      "type": "password",
+      "required": true,
+      "env_var": "DB_PASSWORD",
+      "help": "Database password for the read-only user"
+    }
+  ],
+  "test_command": "test",
+  "files": ["sytex-db", "SKILL.md", "README.md"]
+}
