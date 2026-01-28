@@ -339,16 +339,25 @@ def save_skill_config(skill_id, skill_data, config):
         field_type = field.get("type", "text")
         field_name = field.get("name", "")
 
-        # Handle list type fields (e.g., multiple organizations)
+        # Handle list type fields (e.g., multiple organizations, databases)
         if field_type == "list":
             items = config.get(field_name, [])
             if isinstance(items, list):
+                # Determine the prefix based on field name
+                # organizations -> ORG, databases -> DB
+                list_prefix = field.get("env_key", field_name.upper().rstrip("S")[:3])
+                if field_name == "organizations":
+                    list_prefix = "ORG"
+                elif field_name == "databases":
+                    list_prefix = "DB"
+
                 for item in items:
                     slug = item.get("slug", "")
                     if not slug:
                         continue
-                    slug_upper = slug.upper().replace("-", "_")
-                    env_prefix = f"{skill_upper}_ORG_{slug_upper}_"
+                    # Replace spaces, dashes, and dots with underscores
+                    slug_upper = slug.upper().replace(" ", "_").replace("-", "_").replace(".", "_")
+                    env_prefix = f"{skill_upper}_{list_prefix}_{slug_upper}_"
 
                     for item_field in field.get("item_fields", []):
                         item_field_name = item_field.get("name", "")
@@ -363,9 +372,20 @@ def save_skill_config(skill_id, skill_data, config):
             if env_var:
                 lines.append(f'{env_var}="{value}"')
 
-    # Handle default_org field if present
-    if "default_org" in config and config["default_org"]:
-        lines.append(f'{skill_upper}_DEFAULT_ORG="{config["default_org"]}"')
+    # Handle default field for list types (e.g., default_org, default_db)
+    for field in skill_data.get("fields", []):
+        if field.get("type") == "list":
+            field_name = field.get("name", "")
+            # Determine prefix (organizations -> ORG, databases -> DB)
+            list_prefix = field.get("env_key", field_name.upper().rstrip("S")[:3])
+            if field_name == "organizations":
+                list_prefix = "ORG"
+            elif field_name == "databases":
+                list_prefix = "DB"
+
+            default_key = f"default_{field_name.rstrip('s')}"  # organizations -> default_org, databases -> default_database
+            if default_key in config and config[default_key]:
+                lines.append(f'{skill_upper}_DEFAULT_{list_prefix}="{config[default_key]}"')
 
     content = "\n".join(lines) + "\n"
 
@@ -421,16 +441,31 @@ def get_current_config(skill_id, skill_data):
         # Handle list type fields
         if field_type == "list":
             items = []
-            # Find all organization slugs from env vars
-            # Pattern: SENTRY_ORG_<SLUG>_TOKEN
-            env_prefix = f"{skill_upper}_ORG_"
+            # Determine the prefix based on field name (same logic as save)
+            list_prefix = field.get("env_key", field_name.upper().rstrip("S")[:3])
+            if field_name == "organizations":
+                list_prefix = "ORG"
+            elif field_name == "databases":
+                list_prefix = "DB"
+
+            env_prefix = f"{skill_upper}_{list_prefix}_"
+
+            # Find a required field to use as marker for detecting slugs
+            item_fields = field.get("item_fields", [])
+            marker_field = next((f for f in item_fields if f.get("name") != "slug" and f.get("required")), None)
+            if not marker_field and item_fields:
+                marker_field = item_fields[1] if len(item_fields) > 1 else item_fields[0]
+
             slugs = set()
-            for key in env_vars:
-                if key.startswith(env_prefix) and key.endswith("_TOKEN"):
-                    # Extract slug: SENTRY_ORG_SYTEX_EU_TOKEN -> sytex-eu
-                    slug_part = key[len(env_prefix):-6]  # Remove prefix and _TOKEN
-                    slug = slug_part.lower().replace("_", "-")
-                    slugs.add(slug)
+            if marker_field:
+                marker_name = marker_field.get("name", "").upper().replace("-", "_")
+                # Find all slugs by looking for env vars with this pattern
+                for key in env_vars:
+                    if key.startswith(env_prefix) and key.endswith(f"_{marker_name}"):
+                        # Extract slug: SYTEXDB_DB_PRODUCTION_HOST -> production
+                        slug_part = key[len(env_prefix):-(len(marker_name)+1)]
+                        slug = slug_part.lower().replace("_", "-")
+                        slugs.add(slug)
 
             for slug in sorted(slugs):
                 slug_upper = slug.upper().replace("-", "_")
@@ -450,10 +485,21 @@ def get_current_config(skill_id, skill_data):
             if env_var and env_var in env_vars:
                 config[field_name] = env_vars[env_var]
 
-    # Get default_org if present
-    default_org_key = f"{skill_upper}_DEFAULT_ORG"
-    if default_org_key in env_vars:
-        config["default_org"] = env_vars[default_org_key]
+    # Get default field for list types (e.g., default_org, default_db)
+    for field in skill_data.get("fields", []):
+        if field.get("type") == "list":
+            field_name = field.get("name", "")
+            # Determine prefix (organizations -> ORG, databases -> DB)
+            list_prefix = field.get("env_key", field_name.upper().rstrip("S")[:3])
+            if field_name == "organizations":
+                list_prefix = "ORG"
+            elif field_name == "databases":
+                list_prefix = "DB"
+
+            default_env_key = f"{skill_upper}_DEFAULT_{list_prefix}"
+            if default_env_key in env_vars:
+                default_config_key = f"default_{field_name.rstrip('s')}"  # DEFAULT_ORG -> default_org
+                config[default_config_key] = env_vars[default_env_key]
 
     return config
 

@@ -1,0 +1,56 @@
+{
+  "name": "database",
+  "title": "Database",
+  "description": "Read-only MySQL/MariaDB client for querying databases. Supports multiple database connections.",
+  "version": "2.0.0",
+  "setup_instructions": "Add your database connections. You can configure multiple databases with different credentials.",
+  "fields": [
+    {
+      "name": "databases",
+      "label": "Databases",
+      "type": "list",
+      "required": true,
+      "item_fields": [
+        {
+          "name": "slug",
+          "label": "Connection Name",
+          "type": "text",
+          "required": true,
+          "help": "Short name for this connection (e.g., 'production', 'staging', 'local')"
+        },
+        {
+          "name": "host",
+          "label": "Database Host",
+          "type": "text",
+          "required": true,
+          "default": "127.0.0.1",
+          "help": "Database server hostname or IP address"
+        },
+        {
+          "name": "port",
+          "label": "Database Port",
+          "type": "text",
+          "default": "3306",
+          "help": "Database server port (default: 3306 for MySQL)"
+        },
+        {
+          "name": "user",
+          "label": "Database User",
+          "type": "text",
+          "required": true,
+          "help": "Database username (should have read-only permissions)"
+        },
+        {
+          "name": "password",
+          "label": "Database Password",
+          "type": "password",
+          "required": true,
+          "help": "Database password for the read-only user"
+        }
+      ],
+      "help": "Add one or more database connections"
+    }
+  ],
+  "test_command": "dbs",
+  "files": ["database", "SKILL.md", "README.md"]
+}

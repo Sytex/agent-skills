@@ -13,6 +13,7 @@ Skills for AI coding agents by the Sytex team.
 | [sentry](./skills/sentry)                   | Monitor errors and issues                                   |
 | [slite](./skills/slite)                     | Connect with Slite knowledge base                           |
 | [sytex](./skills/sytex)                     | Interact with Sytex production API                          |
+| [database](./skills/database)               | Read-only MySQL/MariaDB client for querying databases       |
 
 ## Supported Providers
 
