@@ -34,12 +34,6 @@
         }
       ],
       "help": "Add one or more Sentry organizations"
-    },
-    {
-      "name": "default_org",
-      "label": "Default Organization",
-      "type": "text",
-      "help": "Which org to use when --org is not specified. Leave empty to use the first one."
     }
   ],
   "test_command": "orgs",

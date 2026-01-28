@@ -41,9 +41,9 @@ get_org_config() {
     echo "${!var_name}"
 }
 
-# Get list of configured orgs
+# Get list of configured orgs (compatible with macOS BSD grep)
 get_configured_orgs() {
-    env | grep -oP 'SENTRY_ORG_\K[A-Z0-9_]+(?=_TOKEN)' | tr '[:upper:]_' '[:lower:]-' | sort -u
+    grep -o 'SENTRY_ORG_[A-Z0-9_]*_TOKEN' "$CONFIG_FILE" 2>/dev/null | sed 's/^SENTRY_ORG_//' | sed 's/_TOKEN$//' | tr '[:upper:]_' '[:lower:]-' | sort -u
 }
 
 # Resolve which org to use
@@ -291,7 +291,7 @@ show_help() {
     echo "Sentry API CLI (Multi-org)"
     echo ""
     echo "GLOBAL FLAGS:"
-    echo "  --org <slug>    Organization slug (default: $SENTRY_DEFAULT_ORG or first configured)"
+    echo "  --org <slug>    Organization slug (uses first configured if not specified)"
     echo ""
     echo "ORGANIZATIONS:"
     echo "  orgs                        List configured organizations"

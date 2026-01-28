@@ -615,7 +615,7 @@ get_skill_status_for_provider() {
 
     # Check if configured (has credentials)
     if skill_needs_config "$skill"; then
-        if [[ -f "$install_path/.credentials" ]]; then
+        if [[ -f "$install_path/.env" ]]; then
             echo "configured"
         else
             echo "installed"
@@ -842,7 +842,7 @@ configure_skill() {
             return 1
         fi
 
-        env_content+="$env_var=\"$value\"\n"
+        [[ -n "$env_var" ]] && env_content+="$env_var=\"$value\"\n"
         echo ""
     done
 
@@ -881,16 +881,16 @@ configure_list_field() {
     local skill_upper=$(echo "$skill" | tr '[:lower:]-' '[:upper:]_')
     env_prefix="${skill_upper}_ORG_"
 
-    echo -e "${BOLD}$label${NC}"
-    [[ -n "$help" ]] && echo -e "  ${DIM}$help${NC}"
-    echo ""
+    echo -e "${BOLD}$label${NC}" >&2
+    [[ -n "$help" ]] && echo -e "  ${DIM}$help${NC}" >&2
+    echo "" >&2
 
-    # Get existing items from .env
+    # Get existing items from .env (compatible with macOS BSD grep)
     local existing_slugs=()
     if [[ -f "$primary_path/.env" ]]; then
         while IFS= read -r slug; do
             [[ -n "$slug" ]] && existing_slugs+=("$slug")
-        done < <(grep -oP "${env_prefix}\K[A-Z0-9_]+(?=_TOKEN)" "$primary_path/.env" 2>/dev/null | tr '[:upper:]_' '[:lower:]-' | sort -u)
+        done < <(grep -o "${env_prefix}[A-Z0-9_]*_TOKEN" "$primary_path/.env" 2>/dev/null | sed "s/^${env_prefix}//" | sed 's/_TOKEN$//' | tr '[:upper:]_' '[:lower:]-' | sort -u)
     fi
 
     local env_content=""
@@ -898,11 +898,11 @@ configure_list_field() {
 
     # Show existing items
     if [[ ${#existing_slugs[@]} -gt 0 ]]; then
-        echo -e "  ${DIM}Existing items:${NC}"
+        echo -e "  ${DIM}Existing items:${NC}" >&2
         for slug in "${existing_slugs[@]}"; do
-            echo -e "    - $slug"
+            echo -e "    - $slug" >&2
         done
-        echo ""
+        echo "" >&2
     fi
 
     # Main loop for adding/managing items
@@ -917,7 +917,7 @@ configure_list_field() {
 
         case "$action" in
             "Add new item")
-                echo ""
+                echo "" >&2
                 local item_env=""
                 local slug_value=""
 
@@ -939,19 +939,19 @@ configure_list_field() {
                     local irequired_mark=""
                     [[ "$irequired" == "True" ]] && irequired_mark=" ${RED}(required)${NC}"
 
-                    echo -e "  ${BOLD}$ilabel${NC}$irequired_mark"
-                    [[ -n "$ihelp" ]] && echo -e "    ${DIM}$ihelp${NC}"
+                    echo -e "  ${BOLD}$ilabel${NC}$irequired_mark" >&2
+                    [[ -n "$ihelp" ]] && echo -e "    ${DIM}$ihelp${NC}" >&2
 
                     local ivalue
                     if [[ "$itype" == "password" ]]; then
-                        ivalue=$(input_password "    Enter value")
+                        ivalue=$(input_password "    $ilabel")
                     else
-                        ivalue=$(input_text "    Enter value" "$idefault")
+                        ivalue=$(input_text "    $ilabel" "$idefault")
                     fi
 
                     # Validate required
                     if [[ "$irequired" == "True" ]] && [[ -z "$ivalue" ]]; then
-                        style red "Error: $ilabel is required"
+                        style red "Error: $ilabel is required" >&2
                         continue 2
                     fi
 
@@ -977,14 +977,14 @@ configure_list_field() {
                     env_content+="$item_env"
                     existing_slugs+=("$slug_value")
                     ((items_configured++))
-                    style green "  Added: $slug_value"
+                    style green "  Added: $slug_value" >&2
                 fi
-                echo ""
+                echo "" >&2
                 ;;
 
             "Remove item")
                 if [[ ${#existing_slugs[@]} -eq 0 && $items_configured -eq 0 ]]; then
-                    style yellow "No items to remove"
+                    style yellow "No items to remove" >&2
                     continue
                 fi
 
@@ -1004,9 +1004,9 @@ configure_list_field() {
                     local slug_upper=$(echo "$to_remove" | tr '[:lower:]-' '[:upper:]_')
                     env_content=$(echo -e "$env_content" | grep -v "${env_prefix}${slug_upper}_" || true)
 
-                    style yellow "  Removed: $to_remove"
+                    style yellow "  Removed: $to_remove" >&2
                 fi
-                echo ""
+                echo "" >&2
                 ;;
 
             "Done"|"Back")
