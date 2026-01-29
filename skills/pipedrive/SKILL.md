@@ -37,6 +37,8 @@ All commands: `~/.claude/skills/pipedrive/pipedrive <command>`
 
 **Deal flags:**
 - `--limit <n>` - Max results (default: 50)
+- `--start <n>` - Offset for pagination
+- `--all` - Fetch ALL results with auto-pagination (saves to file if large)
 - `--status <open\|won\|lost\|all>` - Filter by status (default: open)
 - `--pipeline <id>` - Filter by pipeline
 - `--stage <id>` - Filter by stage
@@ -65,6 +67,8 @@ All commands: `~/.claude/skills/pipedrive/pipedrive <command>`
 
 **Person flags:**
 - `--limit <n>` - Max results (default: 50)
+- `--start <n>` - Offset for pagination
+- `--all` - Fetch ALL results with auto-pagination
 - `--org <id>` - Filter by organization
 
 **Create flags:**
@@ -77,7 +81,12 @@ All commands: `~/.claude/skills/pipedrive/pipedrive <command>`
 ### Organizations
 | Command | Description |
 |---------|-------------|
-| `orgs [--limit n]` | List organizations |
+| `orgs [flags]` | List organizations |
+
+**Organization flags:**
+- `--limit <n>` - Max results (default: 50)
+- `--start <n>` - Offset for pagination
+- `--all` - Fetch ALL results with auto-pagination
 | `org <id>` | Get organization details |
 | `org-create <name>` | Create organization |
 | `org-update <id> <field> <value>` | Update organization |
@@ -96,6 +105,8 @@ All commands: `~/.claude/skills/pipedrive/pipedrive <command>`
 
 **Activity flags:**
 - `--limit <n>` - Max results (default: 50)
+- `--start <n>` - Offset for pagination
+- `--all` - Fetch ALL results with auto-pagination
 - `--type <type>` - Filter by type (call, meeting, task, deadline, email, lunch)
 - `--done <0\|1>` - Filter by done status
 - `--user <id>` - Filter by user
@@ -172,4 +183,29 @@ All commands: `~/.claude/skills/pipedrive/pipedrive <command>`
 
 # Add note to deal
 ~/.claude/skills/pipedrive/pipedrive note-create deal 123 "Called and discussed pricing"
+
+# Fetch ALL deals (auto-paginated, saves to file if large)
+~/.claude/skills/pipedrive/pipedrive deals --all --status all
+
+# Fetch all deals for a specific user
+~/.claude/skills/pipedrive/pipedrive deals --user 123 --all
+```
+
+## Large Results
+
+When using `--all`, if the result exceeds 50KB it will be saved to a file and the command returns:
+```json
+{"success":true,"total_items":509,"saved_to_file":"/tmp/pipedrive-results/result_XXX.json","message":"..."}
+```
+
+Process the file with jq or python:
+```bash
+# Filter deals with >10 activities
+cat /tmp/pipedrive-results/result_XXX.json | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for d in data['data']:
+    if d.get('activities_count', 0) > 10:
+        print(f\"{d['title']}: {d['activities_count']} activities\")
+"
 ```

@@ -11,6 +11,103 @@ json_value() {
     python3 -c "import json,sys; data=json.load(sys.stdin); v=data.get('$key'); print(v if v else '')"
 }
 
+# Temp directory for large results
+TEMP_DIR="${TMPDIR:-/tmp}/pipedrive-results"
+mkdir -p "$TEMP_DIR"
+
+# Paginated API request - fetches all pages and combines results
+# Usage: api_get_paginated <endpoint> <base_params> <limit_per_page>
+# Saves to file if result is large, returns JSON with file path or inline data
+api_get_paginated() {
+    ensure_valid_token
+    local endpoint="$1"
+    local params="$2"
+    local limit="${3:-100}"
+    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local work_dir="${TEMP_DIR}/work_${timestamp}_$$"
+    mkdir -p "$work_dir"
+
+    local start=0
+    local page_count=0
+
+    # Fetch all pages into separate files
+    while true; do
+        local sep=""
+        [[ -n "$params" ]] && sep="&"
+        local url="$(get_api_url)${endpoint}?${params}${sep}start=${start}&limit=${limit}"
+
+        local page_file="${work_dir}/page_${page_count}.json"
+        curl -s -X GET "$url" \
+            -H "Authorization: Bearer $PIPEDRIVE_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" > "$page_file"
+
+        # Check success and extract pagination info using file
+        local page_info=$(python3 << PYEOF
+import json
+with open("$page_file") as f:
+    d = json.load(f)
+success = d.get('success', False)
+data = d.get('data') or []
+pagination = d.get('additional_data', {}).get('pagination', {})
+more = pagination.get('more_items_in_collection', False)
+next_start = pagination.get('next_start', 0)
+print(f"{success}|{len(data)}|{more}|{next_start}")
+PYEOF
+)
+        local success=$(echo "$page_info" | cut -d'|' -f1)
+        local page_items=$(echo "$page_info" | cut -d'|' -f2)
+        local more_items=$(echo "$page_info" | cut -d'|' -f3)
+        local next_start=$(echo "$page_info" | cut -d'|' -f4)
+
+        [[ "$success" != "True" ]] && cat "$page_file" && rm -rf "$work_dir" && return 1
+
+        page_count=$((page_count + 1))
+        echo "Fetched page $page_count ($page_items items)..." >&2
+
+        [[ "$more_items" != "True" ]] && break
+        start="$next_start"
+    done
+
+    # Merge all pages into single result file
+    local result_file="${TEMP_DIR}/result_${timestamp}_$$.json"
+    python3 << PYEOF
+import json
+import glob
+
+all_data = []
+for page_file in sorted(glob.glob("${work_dir}/page_*.json")):
+    with open(page_file) as f:
+        d = json.load(f)
+        data = d.get('data') or []
+        all_data.extend(data)
+
+result = {"success": True, "data": all_data, "total_items": len(all_data)}
+with open("$result_file", "w") as f:
+    json.dump(result, f)
+
+print(len(all_data))
+PYEOF
+    local total_items=$?
+    total_items=$(python3 -c "import json; print(json.load(open('$result_file'))['total_items'])")
+
+    # Cleanup work directory
+    rm -rf "$work_dir"
+
+    # Check file size
+    local size=$(stat -f%z "$result_file" 2>/dev/null || stat -c%s "$result_file" 2>/dev/null)
+
+    if [[ $size -gt 50000 ]]; then
+        # Large result - keep file, return path
+        local final_file="${TEMP_DIR}/result_${timestamp}_${total_items}items.json"
+        mv "$result_file" "$final_file"
+        echo "{\"success\":true,\"total_items\":$total_items,\"saved_to_file\":\"$final_file\",\"message\":\"Large result ($size bytes) saved to file. Use jq or python to process.\"}"
+    else
+        # Small result - output directly and cleanup
+        cat "$result_file"
+        rm -f "$result_file"
+    fi
+}
+
 # Load configuration
 load_config() {
     [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
@@ -33,9 +130,12 @@ save_tokens() {
     local expires="$3"
     local domain="$4"
 
-    # Update tokens in .env file while preserving client credentials
+    # Validate required values before overwriting
+    [[ -z "$access" || -z "$refresh" ]] && echo "Error: Cannot save empty tokens" >&2 && return 1
+
     local client_id="$PIPEDRIVE_CLIENT_ID"
     local client_secret="$PIPEDRIVE_CLIENT_SECRET"
+    [[ -z "$client_id" || -z "$client_secret" ]] && echo "Error: Missing client credentials" >&2 && return 1
 
     cat > "$CONFIG_FILE" << EOF
 PIPEDRIVE_CLIENT_ID="$client_id"
@@ -220,12 +320,16 @@ cmd_users() {
 cmd_deals() {
     local limit=50
     local status="open"
+    local start=0
+    local fetch_all=false
     local params=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --limit) limit="$2"; shift 2 ;;
+            --start) start="$2"; shift 2 ;;
             --status) status="$2"; shift 2 ;;
+            --all) fetch_all=true; shift ;;
             --pipeline) params="$params&pipeline_id=$2"; shift 2 ;;
             --stage) params="$params&stage_id=$2"; shift 2 ;;
             --user) params="$params&user_id=$2"; shift 2 ;;
@@ -235,7 +339,11 @@ cmd_deals() {
         esac
     done
 
-    api_get "/deals?limit=$limit&status=$status$params"
+    if [[ "$fetch_all" == true ]]; then
+        api_get_paginated "/deals" "status=$status$params" 100
+    else
+        api_get "/deals?limit=$limit&start=$start&status=$status$params"
+    fi
 }
 
 cmd_deal() {
@@ -311,17 +419,25 @@ cmd_deal_delete() {
 
 cmd_persons() {
     local limit=50
+    local start=0
+    local fetch_all=false
     local params=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --limit) limit="$2"; shift 2 ;;
+            --start) start="$2"; shift 2 ;;
+            --all) fetch_all=true; shift ;;
             --org) params="$params&org_id=$2"; shift 2 ;;
             *) shift ;;
         esac
     done
 
-    api_get "/persons?limit=$limit$params"
+    if [[ "$fetch_all" == true ]]; then
+        api_get_paginated "/persons" "$params" 100
+    else
+        api_get "/persons?limit=$limit&start=$start$params"
+    fi
 }
 
 cmd_person() {
@@ -391,15 +507,23 @@ cmd_person_delete() {
 
 cmd_orgs() {
     local limit=50
+    local start=0
+    local fetch_all=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --limit) limit="$2"; shift 2 ;;
+            --start) start="$2"; shift 2 ;;
+            --all) fetch_all=true; shift ;;
             *) shift ;;
         esac
     done
 
-    api_get "/organizations?limit=$limit"
+    if [[ "$fetch_all" == true ]]; then
+        api_get_paginated "/organizations" "" 100
+    else
+        api_get "/organizations?limit=$limit&start=$start"
+    fi
 }
 
 cmd_org() {
@@ -437,11 +561,15 @@ cmd_org_delete() {
 
 cmd_activities() {
     local limit=50
+    local start=0
+    local fetch_all=false
     local params=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --limit) limit="$2"; shift 2 ;;
+            --start) start="$2"; shift 2 ;;
+            --all) fetch_all=true; shift ;;
             --type) params="$params&type=$2"; shift 2 ;;
             --done) params="$params&done=$2"; shift 2 ;;
             --user) params="$params&user_id=$2"; shift 2 ;;
@@ -451,7 +579,11 @@ cmd_activities() {
         esac
     done
 
-    api_get "/activities?limit=$limit$params"
+    if [[ "$fetch_all" == true ]]; then
+        api_get_paginated "/activities" "$params" 100
+    else
+        api_get "/activities?limit=$limit&start=$start$params"
+    fi
 }
 
 cmd_activity() {
@@ -601,6 +733,8 @@ show_help() {
     echo "DEALS:"
     echo "  deals [flags]                     List deals"
     echo "    --limit <n>                     Max results (default: 50)"
+    echo "    --start <n>                     Offset for pagination"
+    echo "    --all                           Fetch ALL results (auto-paginate, saves to file if large)"
     echo "    --status <status>               open, won, lost, all (default: open)"
     echo "    --pipeline <id>                 Filter by pipeline"
     echo "    --stage <id>                    Filter by stage"
@@ -621,6 +755,8 @@ show_help() {
     echo "PERSONS:"
     echo "  persons [flags]                   List persons"
     echo "    --limit <n>                     Max results (default: 50)"
+    echo "    --start <n>                     Offset for pagination"
+    echo "    --all                           Fetch ALL results (auto-paginate)"
     echo "    --org <id>                      Filter by organization"
     echo "  person <id>                       Get person details"
     echo "  person-create <name> [flags]      Create person"
@@ -631,7 +767,10 @@ show_help() {
     echo "  person-delete <id>                Delete person"
     echo ""
     echo "ORGANIZATIONS:"
-    echo "  orgs [--limit n]                  List organizations"
+    echo "  orgs [flags]                      List organizations"
+    echo "    --limit <n>                     Max results (default: 50)"
+    echo "    --start <n>                     Offset for pagination"
+    echo "    --all                           Fetch ALL results (auto-paginate)"
     echo "  org <id>                          Get organization details"
     echo "  org-create <name>                 Create organization"
     echo "  org-update <id> <field> <value>   Update organization"
@@ -640,6 +779,8 @@ show_help() {
     echo "ACTIVITIES:"
     echo "  activities [flags]                List activities"
     echo "    --limit <n>                     Max results (default: 50)"
+    echo "    --start <n>                     Offset for pagination"
+    echo "    --all                           Fetch ALL results (auto-paginate)"
     echo "    --type <type>                   call, meeting, task, deadline, email, lunch"
     echo "    --done <0|1>                    Filter by done status"
     echo "    --user <id>                     Filter by user"
