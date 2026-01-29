@@ -1,7 +1,7 @@
 {
   "name": "sytex-reports",
   "title": "Sytex Reports",
-  "description": "This skill should be used when the user asks about Sytex data: tasks, projects, forms, sites, clients, materials, workflows, users, or AI credits consumption. Trigger phrases: how many tasks, tasks completed by, AI credits consumed, report from Sytex, statistics for [org name], data from [instance]. Covers organizations in: app, claro, ufinet, dt, adc, atis, exsei, integrar, torresec, telesoluciones.",
+  "description": "Query Sytex data: tasks, projects, forms, sites, users, AI credits. Works with app, claro, ufinet, dt, adc, atis, exsei, integrar, torresec.",
   "version": "2.0.0",
   "files": ["SKILL.md"],
   "fields": []

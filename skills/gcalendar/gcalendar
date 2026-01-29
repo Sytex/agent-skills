@@ -1,0 +1,420 @@
+#!/bin/bash
+# Google Calendar API CLI with OAuth2
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/.env"
+
+# Google OAuth2 endpoints
+AUTH_URL="https://accounts.google.com/o/oauth2/v2/auth"
+TOKEN_URL="https://oauth2.googleapis.com/token"
+API_URL="https://www.googleapis.com/calendar/v3"
+SCOPES="https://www.googleapis.com/auth/calendar"
+
+# JSON parsing helper
+json_value() {
+    local key="$1"
+    python3 -c "import json,sys; data=json.load(sys.stdin); v=data.get('$key'); print(v if v is not None else '')"
+}
+
+load_config() {
+    [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
+}
+
+save_tokens() {
+    local access="$1"
+    local refresh="$2"
+    local expires="$3"
+
+    [[ -z "$access" || -z "$refresh" ]] && echo "Error: Cannot save empty tokens" >&2 && return 1
+
+    local client_id="$GCALENDAR_CLIENT_ID"
+    local client_secret="$GCALENDAR_CLIENT_SECRET"
+    [[ -z "$client_id" || -z "$client_secret" ]] && echo "Error: Missing client credentials" >&2 && return 1
+
+    cat > "$CONFIG_FILE" << EOF
+GCALENDAR_CLIENT_ID="$client_id"
+GCALENDAR_CLIENT_SECRET="$client_secret"
+GCALENDAR_ACCESS_TOKEN="$access"
+GCALENDAR_REFRESH_TOKEN="$refresh"
+GCALENDAR_TOKEN_EXPIRES="$expires"
+EOF
+    chmod 600 "$CONFIG_FILE"
+}
+
+refresh_token() {
+    [[ -z "$GCALENDAR_CLIENT_ID" || -z "$GCALENDAR_CLIENT_SECRET" || -z "$GCALENDAR_REFRESH_TOKEN" ]] && return 1
+
+    local response=$(curl -s -X POST "$TOKEN_URL" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "client_id=$GCALENDAR_CLIENT_ID" \
+        -d "client_secret=$GCALENDAR_CLIENT_SECRET" \
+        -d "refresh_token=$GCALENDAR_REFRESH_TOKEN" \
+        -d "grant_type=refresh_token")
+
+    local access=$(echo "$response" | json_value "access_token")
+    local expires_in=$(echo "$response" | json_value "expires_in")
+
+    [[ -z "$access" ]] && echo "Error: Token refresh failed" && return 1
+
+    local expires=$(($(date +%s) + expires_in - 60))
+    save_tokens "$access" "$GCALENDAR_REFRESH_TOKEN" "$expires"
+
+    GCALENDAR_ACCESS_TOKEN="$access"
+    GCALENDAR_TOKEN_EXPIRES="$expires"
+}
+
+ensure_valid_token() {
+    load_config
+
+    [[ -z "$GCALENDAR_ACCESS_TOKEN" ]] && echo "Error: Not authenticated. Run: gcalendar auth" && exit 1
+
+    local now=$(date +%s)
+    [[ -n "$GCALENDAR_TOKEN_EXPIRES" && "$now" -ge "$GCALENDAR_TOKEN_EXPIRES" ]] && refresh_token
+}
+
+# API helpers
+api_get() {
+    ensure_valid_token
+    local endpoint="$1"
+    curl -s -X GET "${API_URL}${endpoint}" \
+        -H "Authorization: Bearer $GCALENDAR_ACCESS_TOKEN" \
+        -H "Content-Type: application/json"
+}
+
+api_post() {
+    ensure_valid_token
+    local endpoint="$1"
+    local data="$2"
+    curl -s -X POST "${API_URL}${endpoint}" \
+        -H "Authorization: Bearer $GCALENDAR_ACCESS_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$data"
+}
+
+api_put() {
+    ensure_valid_token
+    local endpoint="$1"
+    local data="$2"
+    curl -s -X PUT "${API_URL}${endpoint}" \
+        -H "Authorization: Bearer $GCALENDAR_ACCESS_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d "$data"
+}
+
+api_delete() {
+    ensure_valid_token
+    local endpoint="$1"
+    curl -s -X DELETE "${API_URL}${endpoint}" \
+        -H "Authorization: Bearer $GCALENDAR_ACCESS_TOKEN"
+}
+
+# === AUTH ===
+
+cmd_auth() {
+    echo "Google Calendar OAuth2 Setup"
+    echo "============================="
+    echo ""
+    echo "1. Go to https://console.cloud.google.com/apis/credentials"
+    echo "2. Create OAuth 2.0 Client ID (Desktop app)"
+    echo "3. Enable Google Calendar API in your project"
+    echo ""
+
+    read -p "Client ID: " client_id
+    read -p "Client Secret: " client_secret
+
+    [[ -z "$client_id" || -z "$client_secret" ]] && echo "Error: Both values required" && exit 1
+
+    GCALENDAR_CLIENT_ID="$client_id"
+    GCALENDAR_CLIENT_SECRET="$client_secret"
+
+    cat > "$CONFIG_FILE" << EOF
+GCALENDAR_CLIENT_ID="$client_id"
+GCALENDAR_CLIENT_SECRET="$client_secret"
+EOF
+    chmod 600 "$CONFIG_FILE"
+
+    local redirect_uri="urn:ietf:wg:oauth:2.0:oob"
+    local auth_url="${AUTH_URL}?client_id=${client_id}&redirect_uri=${redirect_uri}&response_type=code&scope=${SCOPES}&access_type=offline&prompt=consent"
+
+    echo ""
+    echo "Opening browser for authorization..."
+    echo "If it doesn't open, visit:"
+    echo "$auth_url"
+    echo ""
+
+    open "$auth_url" 2>/dev/null || xdg-open "$auth_url" 2>/dev/null || echo "Please open the URL manually"
+
+    read -p "Paste the authorization code: " auth_code
+
+    [[ -z "$auth_code" ]] && echo "Error: Authorization code required" && exit 1
+
+    local response=$(curl -s -X POST "$TOKEN_URL" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "client_id=$client_id" \
+        -d "client_secret=$client_secret" \
+        -d "code=$auth_code" \
+        -d "grant_type=authorization_code" \
+        -d "redirect_uri=$redirect_uri")
+
+    local access=$(echo "$response" | json_value "access_token")
+    local refresh=$(echo "$response" | json_value "refresh_token")
+    local expires_in=$(echo "$response" | json_value "expires_in")
+
+    [[ -z "$access" ]] && echo "Error: Failed to get tokens. Response: $response" && exit 1
+
+    local expires=$(($(date +%s) + expires_in - 60))
+    save_tokens "$access" "$refresh" "$expires"
+
+    echo ""
+    echo "Authentication successful!"
+}
+
+cmd_status() {
+    load_config
+
+    echo "Google Calendar Auth Status"
+    echo "==========================="
+
+    [[ -z "$GCALENDAR_CLIENT_ID" ]] && echo "Not configured. Run: gcalendar auth" && exit 0
+
+    echo "Client ID: ${GCALENDAR_CLIENT_ID:0:20}..."
+
+    [[ -z "$GCALENDAR_ACCESS_TOKEN" ]] && echo "Status: Not authenticated" && exit 0
+
+    local now=$(date +%s)
+    local remaining=$((GCALENDAR_TOKEN_EXPIRES - now))
+
+    [[ "$remaining" -gt 0 ]] && echo "Token expires in: ${remaining}s" || echo "Token: Expired (will refresh on next request)"
+}
+
+# === CALENDARS ===
+
+cmd_calendars() {
+    api_get "/users/me/calendarList"
+}
+
+cmd_calendar() {
+    local id="${1:-primary}"
+    api_get "/calendars/$id"
+}
+
+# === EVENTS ===
+
+cmd_events() {
+    local calendar="primary"
+    local max_results=10
+    local time_min=""
+    local time_max=""
+    local query=""
+    local single_events="true"
+    local order_by="startTime"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --calendar) calendar="$2"; shift 2 ;;
+            --limit) max_results="$2"; shift 2 ;;
+            --from) time_min="$2"; shift 2 ;;
+            --to) time_max="$2"; shift 2 ;;
+            --today)
+                time_min=$(date +%Y-%m-%dT00:00:00Z)
+                time_max=$(date +%Y-%m-%dT23:59:59Z)
+                shift ;;
+            --week)
+                time_min=$(date +%Y-%m-%dT00:00:00Z)
+                time_max=$(date -v+7d +%Y-%m-%dT23:59:59Z 2>/dev/null || date -d "+7 days" +%Y-%m-%dT23:59:59Z)
+                shift ;;
+            --query) query="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local params="maxResults=$max_results&singleEvents=$single_events&orderBy=$order_by"
+    [[ -n "$time_min" ]] && params="$params&timeMin=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$time_min'))")"
+    [[ -n "$time_max" ]] && params="$params&timeMax=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$time_max'))")"
+    [[ -n "$query" ]] && params="$params&q=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$query'))")"
+
+    api_get "/calendars/$calendar/events?$params"
+}
+
+cmd_event() {
+    local calendar="primary"
+    local event_id="$1"
+    shift
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --calendar) calendar="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    [[ -z "$event_id" ]] && echo "Error: event ID required" && exit 1
+    api_get "/calendars/$calendar/events/$event_id"
+}
+
+cmd_event_create() {
+    local calendar="primary"
+    local summary="$1"
+    shift
+
+    [[ -z "$summary" ]] && echo "Error: summary (title) required" && exit 1
+
+    local start_date="" end_date="" start_time="" end_time="" description="" location=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --calendar) calendar="$2"; shift 2 ;;
+            --date) start_date="$2"; end_date="$2"; shift 2 ;;
+            --start-date) start_date="$2"; shift 2 ;;
+            --end-date) end_date="$2"; shift 2 ;;
+            --start) start_time="$2"; shift 2 ;;
+            --end) end_time="$2"; shift 2 ;;
+            --description) description="$2"; shift 2 ;;
+            --location) location="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local json=""
+
+    # All-day event
+    if [[ -n "$start_date" && -z "$start_time" ]]; then
+        [[ -z "$end_date" ]] && end_date="$start_date"
+        # End date for all-day events must be day after
+        end_date=$(date -j -f "%Y-%m-%d" "$end_date" +%Y-%m-%d 2>/dev/null || echo "$end_date")
+        json=$(python3 << PYEOF
+import json
+event = {
+    "summary": "$summary",
+    "start": {"date": "$start_date"},
+    "end": {"date": "$end_date"}
+}
+if "$description": event["description"] = "$description"
+if "$location": event["location"] = "$location"
+print(json.dumps(event))
+PYEOF
+)
+    # Timed event
+    elif [[ -n "$start_time" ]]; then
+        [[ -z "$start_date" ]] && start_date=$(date +%Y-%m-%d)
+        [[ -z "$end_date" ]] && end_date="$start_date"
+        [[ -z "$end_time" ]] && end_time=$(date -j -f "%H:%M" "$start_time" -v+1H +%H:%M 2>/dev/null || echo "$(echo $start_time | cut -d: -f1):00")
+
+        json=$(python3 << PYEOF
+import json
+from datetime import datetime
+event = {
+    "summary": "$summary",
+    "start": {"dateTime": "${start_date}T${start_time}:00", "timeZone": "America/Argentina/Buenos_Aires"},
+    "end": {"dateTime": "${end_date}T${end_time}:00", "timeZone": "America/Argentina/Buenos_Aires"}
+}
+if "$description": event["description"] = "$description"
+if "$location": event["location"] = "$location"
+print(json.dumps(event))
+PYEOF
+)
+    else
+        echo "Error: --date or --start required" && exit 1
+    fi
+
+    api_post "/calendars/$calendar/events" "$json"
+}
+
+cmd_event_delete() {
+    local calendar="primary"
+    local event_id="$1"
+    shift
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --calendar) calendar="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    [[ -z "$event_id" ]] && echo "Error: event ID required" && exit 1
+    api_delete "/calendars/$calendar/events/$event_id"
+}
+
+# === QUICK ADD ===
+
+cmd_quick() {
+    local calendar="primary"
+    local text="$1"
+    shift
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --calendar) calendar="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    [[ -z "$text" ]] && echo "Error: text required (e.g. 'Meeting tomorrow at 3pm')" && exit 1
+
+    local encoded=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$text'))")
+    api_post "/calendars/$calendar/events/quickAdd?text=$encoded" "{}"
+}
+
+# === HELP ===
+
+show_help() {
+    echo "Google Calendar CLI (OAuth2)"
+    echo ""
+    echo "SETUP:"
+    echo "  auth                              Setup OAuth2 authentication"
+    echo "  status                            Check authentication status"
+    echo ""
+    echo "CALENDARS:"
+    echo "  calendars                         List all calendars"
+    echo "  calendar [id]                     Get calendar details (default: primary)"
+    echo ""
+    echo "EVENTS:"
+    echo "  events [flags]                    List events"
+    echo "    --calendar <id>                 Calendar ID (default: primary)"
+    echo "    --limit <n>                     Max results (default: 10)"
+    echo "    --from <datetime>               Start time (ISO format)"
+    echo "    --to <datetime>                 End time (ISO format)"
+    echo "    --today                         Show today's events"
+    echo "    --week                          Show next 7 days"
+    echo "    --query <text>                  Search in events"
+    echo ""
+    echo "  event <id> [--calendar <id>]      Get event details"
+    echo ""
+    echo "  event-create <title> [flags]      Create event"
+    echo "    --calendar <id>                 Calendar ID"
+    echo "    --date <YYYY-MM-DD>             All-day event date"
+    echo "    --start <HH:MM>                 Start time"
+    echo "    --end <HH:MM>                   End time"
+    echo "    --start-date <YYYY-MM-DD>       Start date (for multi-day)"
+    echo "    --end-date <YYYY-MM-DD>         End date"
+    echo "    --description <text>            Event description"
+    echo "    --location <text>               Event location"
+    echo ""
+    echo "  event-delete <id> [--calendar <id>]  Delete event"
+    echo ""
+    echo "  quick <text> [--calendar <id>]    Quick add (natural language)"
+    echo "                                    e.g., 'Meeting tomorrow at 3pm'"
+    echo ""
+    echo "EXAMPLES:"
+    echo "  gcalendar events --today"
+    echo "  gcalendar events --week --limit 20"
+    echo "  gcalendar event-create 'Team meeting' --date 2026-02-01"
+    echo "  gcalendar event-create 'Call' --start 14:00 --end 15:00"
+    echo "  gcalendar quick 'Lunch with John tomorrow at noon'"
+}
+
+# === MAIN ===
+
+case "$1" in
+    auth) cmd_auth ;;
+    status) cmd_status ;;
+    calendars) cmd_calendars ;;
+    calendar) cmd_calendar "$2" ;;
+    events) shift; cmd_events "$@" ;;
+    event) shift; cmd_event "$@" ;;
+    event-create) shift; cmd_event_create "$@" ;;
+    event-delete) shift; cmd_event_delete "$@" ;;
+    quick) shift; cmd_quick "$@" ;;
+    *) show_help ;;
+esac
