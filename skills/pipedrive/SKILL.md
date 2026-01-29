@@ -107,6 +107,9 @@ All commands: `~/.claude/skills/pipedrive/pipedrive <command>`
 - `--limit <n>` - Max results (default: 50)
 - `--start <n>` - Offset for pagination
 - `--all` - Fetch ALL results with auto-pagination
+- `--from <YYYY-MM-DD>` - Filter by start date
+- `--to <YYYY-MM-DD>` - Filter by end date
+- `--date <YYYY-MM-DD>` - Filter by specific date
 - `--type <type>` - Filter by type (call, meeting, task, deadline, email, lunch)
 - `--done <0\|1>` - Filter by done status
 - `--user <id>` - Filter by user
