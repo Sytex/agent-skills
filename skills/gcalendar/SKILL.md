@@ -1,6 +1,6 @@
 ---
 name: gcalendar
-description: Manage Google Calendar events. Use when user asks about calendar, events, meetings, appointments, or schedule.
+description: Manage Google Calendar events. Use when user asks about calendar, events, meetings, appointments, or schedule. Supports multiple Google accounts.
 allowed-tools:
   - Read
   - Bash(~/.claude/skills/gcalendar/*:*)
@@ -8,15 +8,21 @@ allowed-tools:
 
 # Google Calendar Integration
 
-Manage events, calendars, and schedule via Google Calendar API.
+Manage events, calendars, and schedule via Google Calendar API. Supports multiple Google accounts.
 
 ## Commands
 
 All commands: `~/.claude/skills/gcalendar/gcalendar <command>`
 
+### Global Flags
+| Flag | Description |
+|------|-------------|
+| `--account <name>` or `-a <name>` | Select account (default: first configured) |
+
 ### Setup
 | Command | Description |
 |---------|-------------|
+| `accounts` | List configured accounts |
 | `auth` | Setup OAuth2 authentication |
 | `status` | Check authentication status |
 
@@ -57,11 +63,18 @@ All commands: `~/.claude/skills/gcalendar/gcalendar <command>`
 ## Examples
 
 ```bash
-# List today's events
+# List configured accounts
+~/.claude/skills/gcalendar/gcalendar accounts
+
+# Authenticate a specific account
+~/.claude/skills/gcalendar/gcalendar auth --account work
+
+# List today's events (default account)
 ~/.claude/skills/gcalendar/gcalendar events --today
 
-# List next 7 days
-~/.claude/skills/gcalendar/gcalendar events --week
+# List events from specific account
+~/.claude/skills/gcalendar/gcalendar --account work events --today
+~/.claude/skills/gcalendar/gcalendar --account personal events --week
 
 # Search events
 ~/.claude/skills/gcalendar/gcalendar events --query "meeting"
@@ -87,3 +100,4 @@ Activate this skill when user:
 - Needs to create, modify, or delete events
 - Asks "what do I have today/tomorrow/this week"
 - Wants to schedule something
+- Mentions a specific Google account (work, personal, etc.)
