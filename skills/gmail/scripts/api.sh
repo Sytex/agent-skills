@@ -1,26 +1,123 @@
 #!/bin/bash
-# Gmail IMAP operations
+# Gmail IMAP operations - Multi-account support
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_DIR="$(dirname "$SCRIPT_DIR")"
-CONFIG_FILE="$CONFIG_DIR/.env"
+CONFIG_FILE="$SCRIPT_DIR/.env"
 
-[[ ! -f "$CONFIG_FILE" ]] && echo "Error: Not configured. Create $CONFIG_FILE with GMAIL_EMAIL and GMAIL_APP_PASSWORD" && exit 1
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-source "$CONFIG_FILE"
+# Parse global --account flag first
+SELECTED_ACCOUNT=""
+ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --account|-a)
+            SELECTED_ACCOUNT="$2"
+            shift 2
+            ;;
+        *)
+            ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+set -- "${ARGS[@]}"
 
-[[ -z "$GMAIL_EMAIL" ]] && echo "Error: GMAIL_EMAIL not configured" && exit 1
-[[ -z "$GMAIL_APP_PASSWORD" ]] && echo "Error: GMAIL_APP_PASSWORD not configured" && exit 1
+load_config() {
+    [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
+}
+
+# Get account config value
+get_account_config() {
+    local account="$1"
+    local field="$2"
+    local name_upper=$(echo "$account" | tr '[:lower:]-' '[:upper:]_')
+    local var_name="GMAIL_ACCOUNT_${name_upper}_${field}"
+    echo "${!var_name:-}"
+}
+
+# Get list of configured accounts
+get_configured_accounts() {
+    [[ ! -f "$CONFIG_FILE" ]] && return
+    grep -o 'GMAIL_ACCOUNT_[A-Z0-9_]*_EMAIL' "$CONFIG_FILE" 2>/dev/null | \
+        sed 's/^GMAIL_ACCOUNT_//' | \
+        sed 's/_EMAIL$//' | \
+        tr '[:upper:]_' '[:lower:]-' | \
+        sort -u
+}
+
+# Check for legacy single-account format
+has_legacy_config() {
+    [[ -f "$CONFIG_FILE" ]] && grep -q '^GMAIL_EMAIL=' "$CONFIG_FILE" 2>/dev/null
+}
+
+# Resolve which account to use
+resolve_account() {
+    # Explicit selection
+    if [[ -n "$SELECTED_ACCOUNT" ]]; then
+        echo "$SELECTED_ACCOUNT"
+        return
+    fi
+
+    # Default account setting
+    load_config
+    if [[ -n "${GMAIL_DEFAULT_ACCOUNT:-}" ]]; then
+        echo "$GMAIL_DEFAULT_ACCOUNT"
+        return
+    fi
+
+    # Legacy single-account format
+    if has_legacy_config; then
+        echo "default"
+        return
+    fi
+
+    # First configured account
+    get_configured_accounts | head -1
+}
+
+# Get credentials for current account
+get_credentials() {
+    local account="$1"
+
+    # Legacy format support
+    if [[ "$account" == "default" ]] && has_legacy_config; then
+        load_config
+        CURRENT_EMAIL="$GMAIL_EMAIL"
+        CURRENT_PASSWORD="$GMAIL_APP_PASSWORD"
+        return
+    fi
+
+    load_config
+    CURRENT_EMAIL=$(get_account_config "$account" "EMAIL")
+    CURRENT_PASSWORD=$(get_account_config "$account" "APP_PASSWORD")
+}
+
+ensure_credentials() {
+    local account=$(resolve_account)
+    [[ -z "$account" ]] && echo "Error: No accounts configured. Add GMAIL_ACCOUNT_<name>_EMAIL and GMAIL_ACCOUNT_<name>_APP_PASSWORD to .env" && exit 1
+
+    get_credentials "$account"
+
+    [[ -z "$CURRENT_EMAIL" ]] && echo "Error: GMAIL_ACCOUNT_${account^^}_EMAIL not configured" && exit 1
+    [[ -z "$CURRENT_PASSWORD" ]] && echo "Error: GMAIL_ACCOUNT_${account^^}_APP_PASSWORD not configured" && exit 1
+}
 
 run_python() {
+    ensure_credentials
     python3 -c "
 import imaplib
 import email
 from email.header import decode_header
 import sys
 
-EMAIL = '$GMAIL_EMAIL'
-PASSWORD = '$GMAIL_APP_PASSWORD'
+EMAIL = '$CURRENT_EMAIL'
+PASSWORD = '$CURRENT_PASSWORD'
 
 def connect():
     mail = imaplib.IMAP4_SSL('imap.gmail.com')
@@ -57,6 +154,48 @@ def get_body(msg):
 
 $1
 "
+}
+
+# === ACCOUNTS ===
+
+cmd_accounts() {
+    load_config
+    echo -e "${BLUE}Configured Gmail accounts:${NC}"
+    echo ""
+
+    local current=$(resolve_account)
+    local found=false
+
+    # Check legacy config
+    if has_legacy_config; then
+        found=true
+        local marker=""
+        [[ "$current" == "default" ]] && marker=" ${GREEN}(active)${NC}"
+        echo -e "  ${YELLOW}●${NC} default (legacy)$marker"
+        echo -e "    Email: $GMAIL_EMAIL"
+        echo ""
+    fi
+
+    # List multi-account configs
+    while IFS= read -r account; do
+        [[ -z "$account" ]] && continue
+        found=true
+        local marker=""
+        [[ "$account" == "$current" ]] && marker=" ${GREEN}(active)${NC}"
+        local account_email=$(get_account_config "$account" "EMAIL")
+
+        echo -e "  ${YELLOW}●${NC} $account$marker"
+        echo -e "    Email: $account_email"
+        echo ""
+    done < <(get_configured_accounts)
+
+    if [[ "$found" == "false" ]]; then
+        echo -e "  ${RED}No accounts configured.${NC}"
+        echo ""
+        echo "Add to .env file:"
+        echo "  GMAIL_ACCOUNT_<name>_EMAIL=\"your@gmail.com\""
+        echo "  GMAIL_ACCOUNT_<name>_APP_PASSWORD=\"your-app-password\""
+    fi
 }
 
 cmd_me() {
@@ -305,8 +444,61 @@ mail.logout()
 "
 }
 
+# === HELP ===
+
+show_help() {
+    echo "Gmail IMAP Commands - Multi-account"
+    echo ""
+    echo "GLOBAL FLAGS:"
+    echo "  --account, -a <name>              Select account (default: first configured)"
+    echo ""
+    echo "SETUP:"
+    echo "  accounts                          List configured accounts"
+    echo ""
+    echo "PROFILE:"
+    echo "  me                                Get account info"
+    echo "  labels                            List all folders/labels"
+    echo ""
+    echo "MESSAGES:"
+    echo "  list [flags]                      List messages"
+    echo "       --label <folder>             Folder (INBOX, [Gmail]/Sent, etc)"
+    echo "       --limit <n>                  Max results (default: 10)"
+    echo "       --unread                     Only unread messages"
+    echo "  get <messageId> [flags]           Read full message"
+    echo "       --all                        Read from All Mail"
+    echo "       --trash                      Read from Trash"
+    echo "       --label <folder>             Read from specific folder"
+    echo "  search <query> [flags]            Search messages"
+    echo "       --limit <n>                  Max results (default: 10)"
+    echo "       --oldest                     Show oldest first"
+    echo "       --all                        Search in All Mail (includes archived)"
+    echo "       --trash                      Search in Trash"
+    echo "       --label <folder>             Search in specific folder"
+    echo ""
+    echo "Search query examples:"
+    echo "  is:unread                         Unread messages"
+    echo "  is:starred                        Starred messages"
+    echo "  from:someone@example.com          From specific sender"
+    echo "  to:someone@example.com            To specific recipient"
+    echo "  subject:meeting                   Subject contains 'meeting'"
+    echo "  before:2024/01/15                 Before date"
+    echo "  after:2024/01/15                  After date"
+    echo "  older_than:7d                     Older than 7 days (d/m/y)"
+    echo "  newer_than:1m                     Newer than 1 month"
+    echo "  <any text>                        Search in body"
+    echo ""
+    echo "Examples:"
+    echo "  gmail accounts"
+    echo "  gmail --account work list --unread"
+    echo "  gmail --account personal search from:boss@company.com"
+    echo "  gmail search older_than:1y --oldest --limit 20"
+}
+
 # Main dispatcher
 case "$1" in
+    accounts)
+        cmd_accounts
+        ;;
     me)
         cmd_me
         ;;
@@ -326,43 +518,7 @@ case "$1" in
         cmd_search "$@"
         ;;
     *)
-        echo "Gmail IMAP Commands"
-        echo ""
-        echo "  PROFILE:"
-        echo "  me                            - Get account info"
-        echo "  labels                        - List all folders/labels"
-        echo ""
-        echo "  MESSAGES:"
-        echo "  list [flags]                  - List messages"
-        echo "       --label <folder>         - Folder (INBOX, [Gmail]/Sent, etc)"
-        echo "       --limit <n>              - Max results (default: 10)"
-        echo "       --unread                 - Only unread messages"
-        echo "  get <messageId> [flags]       - Read full message"
-        echo "       --all                    - Read from All Mail"
-        echo "       --trash                  - Read from Trash"
-        echo "       --label <folder>         - Read from specific folder"
-        echo "  search <query> [flags]        - Search messages"
-        echo "       --limit <n>              - Max results (default: 10)"
-        echo "       --oldest                 - Show oldest first"
-        echo "       --all                    - Search in All Mail (includes archived)"
-        echo "       --trash                  - Search in Trash"
-        echo "       --label <folder>         - Search in specific folder"
-        echo ""
-        echo "Search query examples:"
-        echo "  is:unread                     - Unread messages"
-        echo "  is:starred                    - Starred messages"
-        echo "  from:someone@example.com      - From specific sender"
-        echo "  to:someone@example.com        - To specific recipient"
-        echo "  subject:meeting               - Subject contains 'meeting'"
-        echo "  before:2024/01/15             - Before date"
-        echo "  after:2024/01/15              - After date"
-        echo "  older_than:7d                 - Older than 7 days (d/m/y)"
-        echo "  newer_than:1m                 - Newer than 1 month"
-        echo "  <any text>                    - Search in body"
-        echo ""
-        echo "Examples:"
-        echo "  search older_than:1y --oldest --limit 20"
-        echo "  search from:boss@company.com before:2023/06/01"
+        show_help
         exit 1
         ;;
 esac

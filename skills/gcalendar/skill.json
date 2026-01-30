@@ -1,48 +1,56 @@
 {
   "name": "gcalendar",
   "title": "Google Calendar",
-  "description": "Manage Google Calendar events",
-  "version": "1.1.0",
-  "setup_instructions": "To connect Google Calendar, you need OAuth2 credentials from Google Cloud Console. You can configure multiple Google accounts.",
+  "description": "Manage Google Calendar events. Supports multiple accounts.",
+  "version": "1.3.0",
+  "setup_instructions": "Create OAuth credentials once, then authorize multiple Google accounts.",
   "fields": [
+    {
+      "name": "client_id",
+      "label": "Client ID",
+      "type": "text",
+      "required": true,
+      "env_var": "GCALENDAR_CLIENT_ID",
+      "help": "OAuth 2.0 Client ID from Google Cloud Console",
+      "help_url": "https://console.cloud.google.com/apis/credentials"
+    },
+    {
+      "name": "client_secret",
+      "label": "Client Secret",
+      "type": "password",
+      "required": true,
+      "env_var": "GCALENDAR_CLIENT_SECRET",
+      "help": "OAuth 2.0 Client Secret from Google Cloud Console"
+    },
     {
       "name": "accounts",
       "label": "Google Accounts",
       "type": "list",
-      "required": true,
+      "env_key": "ACCOUNT",
+      "required": false,
       "item_fields": [
         {
-          "name": "name",
+          "name": "slug",
           "label": "Account Name",
           "type": "text",
           "required": true,
-          "help": "Short name for this account (e.g., 'work', 'personal')"
-        },
-        {
-          "name": "client_id",
-          "label": "Client ID",
-          "type": "text",
-          "required": true,
-          "help": "OAuth 2.0 Client ID from Google Cloud Console"
-        },
-        {
-          "name": "client_secret",
-          "label": "Client Secret",
-          "type": "password",
-          "required": true,
-          "help": "OAuth 2.0 Client Secret from Google Cloud Console"
+          "help": "Short name (e.g., 'work', 'personal')"
         }
       ],
-      "help": "1. Go to Google Cloud Console\n2. Create OAuth 2.0 Client ID (Desktop app)\n3. Copy the Client ID and Client Secret"
+      "item_oauth": {
+        "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url": "https://oauth2.googleapis.com/token",
+        "scopes": ["https://www.googleapis.com/auth/calendar"],
+        "extra_auth_params": {"access_type": "offline", "prompt": "consent"},
+        "token_mapping": {
+          "access_token": "ACCESS_TOKEN",
+          "refresh_token": "REFRESH_TOKEN",
+          "expires_in": "TOKEN_EXPIRES"
+        }
+      },
+      "help": "Add Google accounts to authorize"
     }
   ],
-  "oauth": {
-    "multi_account": true,
-    "account_field": "accounts",
-    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
-    "token_url": "https://oauth2.googleapis.com/token",
-    "scopes": ["https://www.googleapis.com/auth/calendar"]
-  },
-  "test_command": "status",
+  "test_command": "accounts",
   "files": ["gcalendar", "SKILL.md", "README.md"]
 }

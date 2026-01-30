@@ -1,16 +1,26 @@
 ---
 name: gmail
-description: Read and search Gmail messages. Use when user wants to check email, search inbox, or read messages.
+description: Read and search Gmail messages. Use when user wants to check email, search inbox, or read messages. Supports multiple Gmail accounts.
 allowed-tools: Read, Bash(~/.claude/skills/gmail/*:*)
 ---
 
 # Gmail Integration
 
-Connect to Gmail via IMAP to read, search, and browse emails.
+Connect to Gmail via IMAP to read, search, and browse emails. Supports multiple Gmail accounts.
 
 ## Commands
 
 All commands use the script: `~/.claude/skills/gmail/gmail`
+
+### Global Flags
+| Flag | Description |
+|------|-------------|
+| `--account <name>` or `-a <name>` | Select account (default: first configured) |
+
+### Setup
+| Command | Description |
+|---------|-------------|
+| `accounts` | List configured accounts |
 
 ### Profile & Folders
 
@@ -47,9 +57,20 @@ All commands use the script: `~/.claude/skills/gmail/gmail`
 
 ## Usage Examples
 
-### Check inbox
+### List configured accounts
+```bash
+~/.claude/skills/gmail/gmail accounts
+```
+
+### Check inbox (default account)
 ```bash
 ~/.claude/skills/gmail/gmail list --limit 5
+```
+
+### Check inbox from specific account
+```bash
+~/.claude/skills/gmail/gmail --account work list --limit 5
+~/.claude/skills/gmail/gmail --account personal list --unread
 ```
 
 ### Check unread messages
@@ -65,6 +86,11 @@ All commands use the script: `~/.claude/skills/gmail/gmail`
 ### Search for emails from someone
 ```bash
 ~/.claude/skills/gmail/gmail search "from:boss@company.com"
+```
+
+### Search from specific account
+```bash
+~/.claude/skills/gmail/gmail --account work search "from:client@company.com"
 ```
 
 ### Search by subject
@@ -123,6 +149,7 @@ Activate this skill when user:
 - Asks about unread messages
 - Wants to find emails from someone
 - Needs to browse their email folders
+- Mentions a specific Gmail account (work, personal, etc.)
 
 ## Notes
 

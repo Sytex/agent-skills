@@ -1,26 +1,41 @@
 {
   "name": "gmail",
   "title": "Gmail",
-  "description": "Read Gmail messages via IMAP",
-  "version": "1.0.0",
+  "description": "Read Gmail messages via IMAP. Supports multiple accounts.",
+  "version": "1.1.0",
   "setup_instructions": "To connect Gmail, you need an App Password (not your regular password). This requires 2-Step Verification enabled on your Google account.",
   "fields": [
     {
-      "name": "email",
-      "label": "Gmail Address",
-      "type": "text",
+      "name": "accounts",
+      "label": "Gmail Accounts",
+      "type": "list",
+      "env_key": "ACCOUNT",
       "required": true,
-      "env_var": "GMAIL_EMAIL",
-      "help": "Your full Gmail address (e.g. yourname@gmail.com)"
-    },
-    {
-      "name": "app_password",
-      "label": "App Password",
-      "type": "password",
-      "required": true,
-      "env_var": "GMAIL_APP_PASSWORD",
-      "help": "1. Go to the link below\n2. Click 'Select app' > Mail\n3. Click 'Select device' > Other > type 'Claude'\n4. Click 'Generate'\n5. Copy the 16-character password (no spaces)",
-      "help_url": "https://myaccount.google.com/apppasswords"
+      "item_fields": [
+        {
+          "name": "slug",
+          "label": "Account Name",
+          "type": "text",
+          "required": true,
+          "help": "Short name for this account (e.g., 'work', 'personal')"
+        },
+        {
+          "name": "email",
+          "label": "Gmail Address",
+          "type": "text",
+          "required": true,
+          "help": "Your full Gmail address (e.g. yourname@gmail.com)"
+        },
+        {
+          "name": "app_password",
+          "label": "App Password",
+          "type": "password",
+          "required": true,
+          "help": "1. Go to the link below\n2. Click 'Select app' > Mail\n3. Click 'Select device' > Other > type 'Claude'\n4. Click 'Generate'\n5. Copy the 16-character password (no spaces)",
+          "help_url": "https://myaccount.google.com/apppasswords"
+        }
+      ],
+      "help": "Add one or more Gmail accounts"
     }
   ],
   "test_command": "me",

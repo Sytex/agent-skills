@@ -464,6 +464,7 @@ def save_skill_config(skill_id, skill_data, config):
                     slug_upper = slug.upper().replace(" ", "_").replace("-", "_").replace(".", "_")
                     env_prefix = f"{skill_upper}_{list_prefix}_{slug_upper}_"
 
+                    # Save item_fields
                     for item_field in field.get("item_fields", []):
                         item_field_name = item_field.get("name", "")
                         if item_field_name == "slug":
@@ -471,6 +472,15 @@ def save_skill_config(skill_id, skill_data, config):
                         item_value = item.get(item_field_name, item_field.get("default", ""))
                         field_upper = item_field_name.upper().replace("-", "_")
                         lines.append(f'{env_prefix}{field_upper}="{item_value}"')
+
+                    # Save OAuth tokens if field has item_oauth
+                    item_oauth = field.get("item_oauth")
+                    if item_oauth:
+                        token_mapping = item_oauth.get("token_mapping", {})
+                        for token_key, env_suffix in token_mapping.items():
+                            token_value = item.get(token_key, "")
+                            if token_value:
+                                lines.append(f'{env_prefix}{env_suffix}="{token_value}"')
         else:
             env_var = field.get("env_var", "")
             value = config.get(field_name, "")
@@ -555,34 +565,63 @@ def get_current_config(skill_id, skill_data):
 
             env_prefix = f"{skill_upper}_{list_prefix}_"
 
-            # Find a required field to use as marker for detecting slugs
-            item_fields = field.get("item_fields", [])
-            marker_field = next((f for f in item_fields if f.get("name") != "slug" and f.get("required")), None)
-            if not marker_field and item_fields:
-                marker_field = item_fields[1] if len(item_fields) > 1 else item_fields[0]
-
-            slugs = set()
-            if marker_field:
-                marker_name = marker_field.get("name", "").upper().replace("-", "_")
-                # Find all slugs by looking for env vars with this pattern
+            # For fields with item_oauth, look for REFRESH_TOKEN as marker
+            item_oauth = field.get("item_oauth")
+            if item_oauth:
+                token_mapping = item_oauth.get("token_mapping", {})
+                refresh_token_suffix = token_mapping.get("refresh_token", "REFRESH_TOKEN")
+                # Find all slugs by looking for env vars with REFRESH_TOKEN
                 for key in env_vars:
-                    if key.startswith(env_prefix) and key.endswith(f"_{marker_name}"):
-                        # Extract slug: SYTEXDB_DB_PRODUCTION_HOST -> production
-                        slug_part = key[len(env_prefix):-(len(marker_name)+1)]
+                    if key.startswith(env_prefix) and key.endswith(f"_{refresh_token_suffix}"):
+                        slug_part = key[len(env_prefix):-(len(refresh_token_suffix)+1)]
                         slug = slug_part.lower().replace("_", "-")
-                        slugs.add(slug)
+                        slug_upper = slug.upper().replace("-", "_")
 
-            for slug in sorted(slugs):
-                slug_upper = slug.upper().replace("-", "_")
-                item = {"slug": slug}
-                for item_field in field.get("item_fields", []):
-                    item_field_name = item_field.get("name", "")
-                    if item_field_name == "slug":
-                        continue
-                    field_upper = item_field_name.upper().replace("-", "_")
-                    env_key = f"{env_prefix}{slug_upper}_{field_upper}"
-                    item[item_field_name] = env_vars.get(env_key, item_field.get("default", ""))
-                items.append(item)
+                        item = {"slug": slug}
+                        # Get all token fields
+                        for token_key, env_suffix in token_mapping.items():
+                            env_key = f"{env_prefix}{slug_upper}_{env_suffix}"
+                            if env_key in env_vars:
+                                item[token_key] = env_vars[env_key]
+
+                        # Also get any item_fields
+                        for item_field in field.get("item_fields", []):
+                            item_field_name = item_field.get("name", "")
+                            if item_field_name == "slug":
+                                continue
+                            field_upper = item_field_name.upper().replace("-", "_")
+                            env_key = f"{env_prefix}{slug_upper}_{field_upper}"
+                            if env_key in env_vars:
+                                item[item_field_name] = env_vars[env_key]
+
+                        items.append(item)
+            else:
+                # Standard list field logic
+                item_fields = field.get("item_fields", [])
+                marker_field = next((f for f in item_fields if f.get("name") != "slug" and f.get("required")), None)
+                if not marker_field and item_fields:
+                    marker_field = item_fields[1] if len(item_fields) > 1 else item_fields[0]
+
+                slugs = set()
+                if marker_field:
+                    marker_name = marker_field.get("name", "").upper().replace("-", "_")
+                    for key in env_vars:
+                        if key.startswith(env_prefix) and key.endswith(f"_{marker_name}"):
+                            slug_part = key[len(env_prefix):-(len(marker_name)+1)]
+                            slug = slug_part.lower().replace("_", "-")
+                            slugs.add(slug)
+
+                for slug in sorted(slugs):
+                    slug_upper = slug.upper().replace("-", "_")
+                    item = {"slug": slug}
+                    for item_field in field.get("item_fields", []):
+                        item_field_name = item_field.get("name", "")
+                        if item_field_name == "slug":
+                            continue
+                        field_upper = item_field_name.upper().replace("-", "_")
+                        env_key = f"{env_prefix}{slug_upper}_{field_upper}"
+                        item[item_field_name] = env_vars.get(env_key, item_field.get("default", ""))
+                    items.append(item)
 
             config[field_name] = items
         else:
@@ -609,6 +648,12 @@ def get_current_config(skill_id, skill_data):
     return config
 
 
+def strip_ansi(text):
+    """Remove ANSI escape codes from text."""
+    import re
+    return re.sub(r'\x1b\[[0-9;]*m', '', text)
+
+
 def test_skill(skill_id, skill_data):
     """Run skill test command."""
     install_path = get_primary_install_path(skill_id)
@@ -627,7 +672,7 @@ def test_skill(skill_id, skill_data):
     cmd = f"{executable} {test_cmd}"
     result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
 
-    output = result.stdout + result.stderr
+    output = strip_ansi(result.stdout + result.stderr)
     return {
         "success": result.returncode == 0,
         "output": output or "(no output)"
@@ -698,6 +743,71 @@ def save_oauth_tokens(skill_id, skill_data, tokens, client_id, client_secret):
     central_path = get_central_config_path(skill_id)
     central_path.mkdir(parents=True, exist_ok=True)
     env_path = central_path / ".env"
+    env_path.write_text(content)
+    os.chmod(env_path, 0o600)
+
+    # Sync to providers
+    sync_config_to_providers(skill_id)
+
+
+def run_oauth_flow_for_account(skill_id, skill_data, field, account_slug, client_id, client_secret):
+    """Run OAuth flow for a specific account in a list field with item_oauth."""
+    from oauth import run_oauth_flow as oauth_flow
+
+    item_oauth = field.get("item_oauth")
+    if not item_oauth:
+        return {"error": "Field does not support OAuth"}
+
+    result = oauth_flow(item_oauth, client_id, client_secret)
+    return result
+
+
+def save_account_oauth_tokens(skill_id, skill_data, field, account_slug, tokens, client_id, client_secret):
+    """Save OAuth tokens for a specific account."""
+    central_path = get_central_config_path(skill_id)
+    central_path.mkdir(parents=True, exist_ok=True)
+    env_path = central_path / ".env"
+
+    # Read existing content
+    existing_lines = []
+    if env_path.exists():
+        existing_lines = env_path.read_text().splitlines()
+
+    # Build prefix for this account
+    skill_upper = skill_id.upper().replace("-", "_")
+    env_key = field.get("env_key", "ACCOUNT")
+    slug_upper = account_slug.upper().replace(" ", "_").replace("-", "_").replace(".", "_")
+    account_prefix = f"{skill_upper}_{env_key}_{slug_upper}_"
+
+    # Remove old tokens for this account
+    new_lines = [line for line in existing_lines if not line.startswith(account_prefix)]
+
+    # Ensure client credentials are present
+    has_client_id = any("CLIENT_ID=" in line for line in new_lines)
+    has_client_secret = any("CLIENT_SECRET=" in line for line in new_lines)
+
+    for f in skill_data.get("fields", []):
+        env_var = f.get("env_var", "")
+        if "CLIENT_ID" in env_var and not has_client_id:
+            new_lines.insert(0, f'{env_var}="{client_id}"')
+        elif "CLIENT_SECRET" in env_var and not has_client_secret:
+            new_lines.insert(1, f'{env_var}="{client_secret}"')
+
+    # Add new tokens for this account
+    item_oauth = field.get("item_oauth", {})
+    token_mapping = item_oauth.get("token_mapping", {
+        "access_token": "ACCESS_TOKEN",
+        "refresh_token": "REFRESH_TOKEN",
+        "expires_in": "TOKEN_EXPIRES",
+    })
+
+    for token_key, env_suffix in token_mapping.items():
+        if token_key in tokens:
+            value = tokens[token_key]
+            new_lines.append(f'{account_prefix}{env_suffix}="{value}"')
+
+    # Write back
+    content = "\n".join(new_lines) + "\n"
     env_path.write_text(content)
     os.chmod(env_path, 0o600)
 
@@ -976,6 +1086,58 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
             # Save tokens
             save_oauth_tokens(skill_id, skill, result, client_id, client_secret)
             self.send_json({"success": True, "message": "OAuth authorization complete"})
+
+        elif path.startswith("/api/skills/") and path.endswith("/oauth-account"):
+            # OAuth for a specific account in a list field with item_oauth
+            skill_id = path.split("/")[3]
+            if skill_id not in skills:
+                self.send_json({"error": "Skill not found"}, 404)
+                return
+
+            skill = skills[skill_id]
+            account_slug = data.get("account")
+            field_name = data.get("field", "accounts")
+            client_id = data.get("client_id")
+            client_secret = data.get("client_secret")
+
+            if not account_slug:
+                self.send_json({"error": "account is required"}, 400)
+                return
+
+            if not client_id or not client_secret:
+                self.send_json({"error": "client_id and client_secret required"}, 400)
+                return
+
+            # Find the field with item_oauth
+            field = None
+            for f in skill.get("fields", []):
+                if f.get("name") == field_name and f.get("item_oauth"):
+                    field = f
+                    break
+
+            if not field:
+                self.send_json({"error": f"Field '{field_name}' does not support per-account OAuth"}, 400)
+                return
+
+            # Install files first if needed
+            if not get_enabled_providers():
+                self.send_json({"error": "No providers configured"}, 400)
+                return
+
+            primary_path = get_primary_install_path(skill_id)
+            if not primary_path or not os.path.isdir(primary_path):
+                install_files(skill_id, skill)
+
+            # Run OAuth flow
+            result = run_oauth_flow_for_account(skill_id, skill, field, account_slug, client_id, client_secret)
+
+            if "error" in result:
+                self.send_json({"error": result["error"]}, 400)
+                return
+
+            # Save tokens for this account
+            save_account_oauth_tokens(skill_id, skill, field, account_slug, result, client_id, client_secret)
+            self.send_json({"success": True, "message": f"Account '{account_slug}' authorized"})
 
         elif path.startswith("/api/skills/") and path.endswith("/clear-auth"):
             skill_id = path.split("/")[3]

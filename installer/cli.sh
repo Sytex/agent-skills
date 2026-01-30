@@ -1122,17 +1122,65 @@ configure_skill() {
     style green "Configuration saved"
 }
 
+# Run OAuth flow for an account and save tokens
+run_account_oauth() {
+    local skill="$1"
+    local field_json="$2"
+    local account_slug="$3"
+    local client_id="$4"
+    local client_secret="$5"
+
+    local item_oauth_json
+    item_oauth_json=$(echo "$field_json" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin).get('item_oauth', {})))")
+
+    if [[ "$item_oauth_json" == "{}" ]]; then
+        style red "Field does not support OAuth"
+        return 1
+    fi
+
+    echo "" >&2
+    style cyan "Authorizing account: $account_slug" >&2
+
+    # Run OAuth flow using Python
+    local tokens_json
+    tokens_json=$(python3 -c "
+import json
+import sys
+sys.path.insert(0, '$SCRIPT_DIR')
+from oauth import run_oauth_flow
+
+item_oauth = json.loads('''$item_oauth_json''')
+result = run_oauth_flow(item_oauth, '$client_id', '$client_secret')
+print(json.dumps(result))
+" 2>&1)
+
+    # Check for errors
+    if echo "$tokens_json" | python3 -c "import json,sys; data=json.load(sys.stdin); sys.exit(0 if 'error' not in data else 1)" 2>/dev/null; then
+        # Success - return the tokens
+        echo "$tokens_json"
+        return 0
+    else
+        local error
+        error=$(echo "$tokens_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error', 'Unknown error'))" 2>/dev/null || echo "$tokens_json")
+        style red "Authorization failed: $error" >&2
+        return 1
+    fi
+}
+
 # Configure a list-type field (e.g., multiple Sentry organizations)
 configure_list_field() {
     local skill="$1"
     local field_json="$2"
     local primary_path="$3"
 
-    local label name env_prefix item_fields_json
+    local label name env_prefix item_fields_json item_oauth_json
     label=$(echo "$field_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('label','Items'))")
     name=$(echo "$field_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('name',''))")
     help=$(echo "$field_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('help',''))")
     item_fields_json=$(echo "$field_json" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin).get('item_fields', [])))")
+    item_oauth_json=$(echo "$field_json" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin).get('item_oauth', {})))")
+    local has_item_oauth="false"
+    [[ "$item_oauth_json" != "{}" ]] && has_item_oauth="true"
 
     # Env prefix based on skill and field name (e.g., SENTRY_ORG_, DATABASE_DB_)
     local skill_upper=$(echo "$skill" | tr '[:lower:]-' '[:upper:]_')
@@ -1151,11 +1199,21 @@ configure_list_field() {
     [[ -n "$help" ]] && echo -e "  ${DIM}$help${NC}" >&2
     echo "" >&2
 
+    # Show redirect URI notice for OAuth accounts
+    if [[ "$has_item_oauth" == "true" ]]; then
+        echo -e "  ${CYAN}Redirect URI: http://localhost:9876/callback${NC}" >&2
+        echo -e "  ${DIM}(Configure this in your OAuth app settings)${NC}" >&2
+        echo "" >&2
+    fi
+
     # Get existing items from .env (compatible with macOS BSD grep)
-    # Use different marker field based on list type (TOKEN for orgs, HOST for databases)
+    # Use different marker field based on list type
     local marker_suffix="_TOKEN"
     if [[ "$name" == "databases" ]]; then
         marker_suffix="_HOST"
+    elif [[ "$has_item_oauth" == "true" ]]; then
+        # For OAuth accounts, look for REFRESH_TOKEN
+        marker_suffix="_REFRESH_TOKEN"
     fi
 
     local existing_slugs=()
@@ -1170,9 +1228,17 @@ configure_list_field() {
 
     # Show existing items
     if [[ ${#existing_slugs[@]} -gt 0 ]]; then
-        echo -e "  ${DIM}Existing items:${NC}" >&2
+        if [[ "$has_item_oauth" == "true" ]]; then
+            echo -e "  ${DIM}Authorized accounts:${NC}" >&2
+        else
+            echo -e "  ${DIM}Existing items:${NC}" >&2
+        fi
         for slug in "${existing_slugs[@]}"; do
-            echo -e "    - $slug" >&2
+            if [[ "$has_item_oauth" == "true" ]]; then
+                echo -e "    ${GREEN}✓${NC} $slug" >&2
+            else
+                echo -e "    - $slug" >&2
+            fi
         done
         echo "" >&2
     fi
@@ -1181,80 +1247,193 @@ configure_list_field() {
     while true; do
         local action_options=("Add new item" "Done")
         if [[ ${#existing_slugs[@]} -gt 0 || $items_configured -gt 0 ]]; then
-            action_options=("Add new item" "Remove item" "Done")
+            if [[ "$has_item_oauth" == "true" ]]; then
+                action_options=("Add new account" "Re-authorize account" "Remove account" "Done")
+            else
+                action_options=("Add new item" "Remove item" "Done")
+            fi
+        elif [[ "$has_item_oauth" == "true" ]]; then
+            action_options=("Add new account" "Done")
         fi
 
         local action
         action=$(choose "What would you like to do?" "${action_options[@]}")
 
         case "$action" in
-            "Add new item")
+            "Add new item"|"Add new account")
                 echo "" >&2
                 local item_env=""
                 local slug_value=""
 
-                # Get item fields
-                local item_field_count
-                item_field_count=$(echo "$item_fields_json" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
+                if [[ "$has_item_oauth" == "true" ]]; then
+                    # OAuth account: only ask for slug, then run OAuth flow
+                    echo -e "  ${BOLD}Account Name${NC} ${RED}(required)${NC}" >&2
+                    echo -e "    ${DIM}Short name (e.g., 'work', 'personal')${NC}" >&2
+                    slug_value=$(input_text "    Account Name" "")
 
-                for ((j=0; j<item_field_count; j++)); do
-                    local ifield_json iname ilabel itype irequired idefault ihelp
-                    ifield_json=$(echo "$item_fields_json" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)[$j]))")
-
-                    iname=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('name',''))")
-                    ilabel=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('label',''))")
-                    itype=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('type','text'))")
-                    irequired=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('required',False))")
-                    idefault=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('default',''))")
-                    ihelp=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('help',''))")
-
-                    local irequired_mark=""
-                    [[ "$irequired" == "True" ]] && irequired_mark=" ${RED}(required)${NC}"
-
-                    echo -e "  ${BOLD}$ilabel${NC}$irequired_mark" >&2
-                    [[ -n "$ihelp" ]] && echo -e "    ${DIM}$ihelp${NC}" >&2
-
-                    local ivalue
-                    if [[ "$itype" == "password" ]]; then
-                        ivalue=$(input_password "    $ilabel")
-                    else
-                        ivalue=$(input_text "    $ilabel" "$idefault")
+                    if [[ -z "$slug_value" ]]; then
+                        style red "Error: Account name is required" >&2
+                        continue
                     fi
 
-                    # Validate required
-                    if [[ "$irequired" == "True" ]] && [[ -z "$ivalue" ]]; then
-                        style red "Error: $ilabel is required" >&2
-                        continue 2
+                    # Normalize slug
+                    slug_value=$(echo "$slug_value" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+
+                    # Get client credentials from existing config or parent fields
+                    local client_id client_secret
+                    if [[ -f "$primary_path/.env" ]]; then
+                        client_id=$(grep "CLIENT_ID=" "$primary_path/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
+                        client_secret=$(grep "CLIENT_SECRET=" "$primary_path/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
                     fi
 
-                    # Store slug for env var naming
-                    if [[ "$iname" == "slug" ]]; then
-                        slug_value="$ivalue"
+                    if [[ -z "$client_id" || -z "$client_secret" ]]; then
+                        style red "Error: Client ID and Client Secret must be configured first" >&2
+                        echo -e "  ${DIM}Please save the app credentials before adding accounts${NC}" >&2
+                        continue
                     fi
 
-                    # Build env var name: SENTRY_ORG_<SLUG>_<FIELD>
-                    local slug_upper=$(echo "$slug_value" | tr '[:lower:]-' '[:upper:]_')
-                    local field_upper=$(echo "$iname" | tr '[:lower:]-' '[:upper:]_')
+                    # Run OAuth flow
+                    local tokens_json
+                    tokens_json=$(run_account_oauth "$skill" "$field_json" "$slug_value" "$client_id" "$client_secret")
 
-                    # Store temporarily
-                    if [[ "$iname" == "slug" ]]; then
-                        # Slug is used in naming, not stored directly
-                        :
-                    else
-                        item_env+="${env_prefix}${slug_upper}_${field_upper}=\"$ivalue\"\n"
+                    if [[ $? -eq 0 ]] && [[ -n "$tokens_json" ]]; then
+                        # Parse tokens and build env vars
+                        local slug_upper=$(echo "$slug_value" | tr '[:lower:]-' '[:upper:]_')
+                        local token_mapping
+                        token_mapping=$(echo "$item_oauth_json" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin).get('token_mapping', {'access_token': 'ACCESS_TOKEN', 'refresh_token': 'REFRESH_TOKEN', 'expires_in': 'TOKEN_EXPIRES'})))")
+
+                        # Add each token to env_content
+                        while IFS='=' read -r token_key env_suffix; do
+                            local token_value
+                            token_value=$(echo "$tokens_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('$token_key', ''))")
+                            if [[ -n "$token_value" ]]; then
+                                item_env+="${env_prefix}${slug_upper}_${env_suffix}=\"$token_value\"\n"
+                            fi
+                        done < <(echo "$token_mapping" | python3 -c "import json,sys; [print(f'{k}={v}') for k,v in json.load(sys.stdin).items()]")
+
+                        if [[ -n "$item_env" ]]; then
+                            env_content+="$item_env"
+                            existing_slugs+=("$slug_value")
+                            ((items_configured++))
+                            style green "  Authorized: $slug_value" >&2
+                        fi
                     fi
-                done
+                else
+                    # Standard list item: ask for all fields
+                    local item_field_count
+                    item_field_count=$(echo "$item_fields_json" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")
 
-                if [[ -n "$slug_value" ]]; then
-                    env_content+="$item_env"
-                    existing_slugs+=("$slug_value")
-                    ((items_configured++))
-                    style green "  Added: $slug_value" >&2
+                    for ((j=0; j<item_field_count; j++)); do
+                        local ifield_json iname ilabel itype irequired idefault ihelp
+                        ifield_json=$(echo "$item_fields_json" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)[$j]))")
+
+                        iname=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('name',''))")
+                        ilabel=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('label',''))")
+                        itype=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('type','text'))")
+                        irequired=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('required',False))")
+                        idefault=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('default',''))")
+                        ihelp=$(echo "$ifield_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('help',''))")
+
+                        local irequired_mark=""
+                        [[ "$irequired" == "True" ]] && irequired_mark=" ${RED}(required)${NC}"
+
+                        echo -e "  ${BOLD}$ilabel${NC}$irequired_mark" >&2
+                        [[ -n "$ihelp" ]] && echo -e "    ${DIM}$ihelp${NC}" >&2
+
+                        local ivalue
+                        if [[ "$itype" == "password" ]]; then
+                            ivalue=$(input_password "    $ilabel")
+                        else
+                            ivalue=$(input_text "    $ilabel" "$idefault")
+                        fi
+
+                        # Validate required
+                        if [[ "$irequired" == "True" ]] && [[ -z "$ivalue" ]]; then
+                            style red "Error: $ilabel is required" >&2
+                            continue 2
+                        fi
+
+                        # Store slug for env var naming
+                        if [[ "$iname" == "slug" ]]; then
+                            slug_value="$ivalue"
+                        fi
+
+                        # Build env var name: SENTRY_ORG_<SLUG>_<FIELD>
+                        local slug_upper=$(echo "$slug_value" | tr '[:lower:]-' '[:upper:]_')
+                        local field_upper=$(echo "$iname" | tr '[:lower:]-' '[:upper:]_')
+
+                        # Store temporarily
+                        if [[ "$iname" == "slug" ]]; then
+                            # Slug is used in naming, not stored directly
+                            :
+                        else
+                            item_env+="${env_prefix}${slug_upper}_${field_upper}=\"$ivalue\"\n"
+                        fi
+                    done
+
+                    if [[ -n "$slug_value" ]]; then
+                        env_content+="$item_env"
+                        existing_slugs+=("$slug_value")
+                        ((items_configured++))
+                        style green "  Added: $slug_value" >&2
+                    fi
                 fi
                 echo "" >&2
                 ;;
 
-            "Remove item")
+            "Re-authorize account")
+                if [[ ${#existing_slugs[@]} -eq 0 ]]; then
+                    style yellow "No accounts to re-authorize" >&2
+                    continue
+                fi
+
+                local reauth_options=("${existing_slugs[@]}" "Cancel")
+                local to_reauth
+                to_reauth=$(choose "Select account to re-authorize:" "${reauth_options[@]}")
+
+                if [[ "$to_reauth" != "Cancel" && "$to_reauth" != "Back" ]]; then
+                    # Get client credentials
+                    local client_id client_secret
+                    if [[ -f "$primary_path/.env" ]]; then
+                        client_id=$(grep "CLIENT_ID=" "$primary_path/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
+                        client_secret=$(grep "CLIENT_SECRET=" "$primary_path/.env" 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
+                    fi
+
+                    if [[ -z "$client_id" || -z "$client_secret" ]]; then
+                        style red "Error: Client credentials not found" >&2
+                        continue
+                    fi
+
+                    # Run OAuth flow
+                    local tokens_json
+                    tokens_json=$(run_account_oauth "$skill" "$field_json" "$to_reauth" "$client_id" "$client_secret")
+
+                    if [[ $? -eq 0 ]] && [[ -n "$tokens_json" ]]; then
+                        # Remove old tokens for this account from env_content
+                        local slug_upper=$(echo "$to_reauth" | tr '[:lower:]-' '[:upper:]_')
+                        env_content=$(echo -e "$env_content" | grep -v "${env_prefix}${slug_upper}_" || true)
+
+                        # Add new tokens
+                        local token_mapping
+                        token_mapping=$(echo "$item_oauth_json" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin).get('token_mapping', {'access_token': 'ACCESS_TOKEN', 'refresh_token': 'REFRESH_TOKEN', 'expires_in': 'TOKEN_EXPIRES'})))")
+
+                        local new_tokens=""
+                        while IFS='=' read -r token_key env_suffix; do
+                            local token_value
+                            token_value=$(echo "$tokens_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('$token_key', ''))")
+                            if [[ -n "$token_value" ]]; then
+                                new_tokens+="${env_prefix}${slug_upper}_${env_suffix}=\"$token_value\"\n"
+                            fi
+                        done < <(echo "$token_mapping" | python3 -c "import json,sys; [print(f'{k}={v}') for k,v in json.load(sys.stdin).items()]")
+
+                        env_content+="$new_tokens"
+                        style green "  Re-authorized: $to_reauth" >&2
+                    fi
+                fi
+                echo "" >&2
+                ;;
+
+            "Remove item"|"Remove account")
                 if [[ ${#existing_slugs[@]} -eq 0 && $items_configured -eq 0 ]]; then
                     style yellow "No items to remove" >&2
                     continue

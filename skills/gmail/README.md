@@ -1,6 +1,6 @@
 # Gmail Skill
 
-Read and search Gmail messages using IMAP with App Passwords.
+Read and search Gmail messages using IMAP with App Passwords. Supports multiple accounts.
 
 ## Features
 
@@ -8,6 +8,7 @@ Read and search Gmail messages using IMAP with App Passwords.
 - Search emails by sender, subject, or content
 - Read full email content
 - Browse folders/labels
+- Multiple Gmail accounts support
 - Works with any AI coding agent
 
 ## Requirements
@@ -53,11 +54,38 @@ Enter your Gmail address and App Password when prompted.
 ~/.claude/skills/gmail/gmail me
 ```
 
+## Multi-Account Setup
+
+To add multiple Gmail accounts, edit `~/.claude/skills/gmail/.env`:
+
+```bash
+# Account: work
+GMAIL_ACCOUNT_WORK_EMAIL="work@company.com"
+GMAIL_ACCOUNT_WORK_APP_PASSWORD="xxxx xxxx xxxx xxxx"
+
+# Account: personal
+GMAIL_ACCOUNT_PERSONAL_EMAIL="personal@gmail.com"
+GMAIL_ACCOUNT_PERSONAL_APP_PASSWORD="yyyy yyyy yyyy yyyy"
+
+# Optional: set default account
+GMAIL_DEFAULT_ACCOUNT="work"
+```
+
+Then use with `--account` or `-a` flag:
+
+```bash
+~/.claude/skills/gmail/gmail --account work list --unread
+~/.claude/skills/gmail/gmail -a personal search "from:friend@gmail.com"
+```
+
 ## Usage
 
 ### Commands
 
 ```bash
+# List accounts
+~/.claude/skills/gmail/gmail accounts
+
 # Profile
 ~/.claude/skills/gmail/gmail me                     # Account info
 ~/.claude/skills/gmail/gmail labels                 # List folders
@@ -69,6 +97,10 @@ Enter your Gmail address and App Password when prompted.
 ~/.claude/skills/gmail/gmail list --label "[Gmail]/Sent Mail"  # Sent folder
 ~/.claude/skills/gmail/gmail get <messageId>        # Read message
 ~/.claude/skills/gmail/gmail search "query"         # Search messages
+
+# With specific account
+~/.claude/skills/gmail/gmail --account work list --unread
+~/.claude/skills/gmail/gmail -a personal search "from:friend@gmail.com"
 ```
 
 ### Search Examples
@@ -111,7 +143,8 @@ After installation, use with your AI agent:
 
 Or ask naturally:
 - "Check my unread emails"
-- "Search for emails from john@example.com"
+- "Check my work email inbox"
+- "Search for emails from john@example.com in my personal account"
 - "Read the email about the meeting"
 
 ## Files

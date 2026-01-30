@@ -1374,8 +1374,17 @@
             if (isInstalledAnywhere && hasFields) {
                 const needsConfig = !skill.config || Object.keys(skill.config).length === 0;
                 const hasOAuth = !!skill.oauth;
+                const hasItemOAuth = (skill.fields || []).some(f => f.item_oauth);
 
                 html += `<div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)">`;
+
+                // Show redirect URI notice if skill has per-account OAuth
+                if (hasItemOAuth) {
+                    html += `<div class="alert alert-info" style="margin-bottom:1rem">
+                        <strong>Redirect URI:</strong> <code style="background:var(--bg);padding:0.2rem 0.5rem;border-radius:4px">http://localhost:9876/callback</code>
+                        <br><span style="font-size:0.85rem;opacity:0.8">Configure this in your Google Cloud Console OAuth settings</span>
+                    </div>`;
+                }
 
                 if (hasOAuth) {
                     // OAuth flow
@@ -1507,8 +1516,9 @@
         function renderListField(field, items) {
             const fieldName = field.name;
             const itemFields = field.item_fields || [];
+            const hasItemOAuth = !!field.item_oauth;
 
-            let html = `<div class="list-field" data-field-name="${fieldName}">`;
+            let html = `<div class="list-field" data-field-name="${fieldName}" data-has-oauth="${hasItemOAuth}">`;
             html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">`;
             html += `<label class="form-label" style="margin:0">${field.label} ${field.required ? '<span class="required">*</span>' : ''}</label>`;
             html += `</div>`;
@@ -1523,26 +1533,44 @@
                 html += `<div class="list-empty">No items configured. Click "Add" to add one.</div>`;
             } else {
                 for (let i = 0; i < items.length; i++) {
-                    html += renderListItem(fieldName, itemFields, items[i], i);
+                    html += renderListItem(fieldName, itemFields, items[i], i, hasItemOAuth);
                 }
             }
 
             html += `</div>`;
 
-            html += `<button type="button" class="add-item-btn" onclick="addListItem('${fieldName}')">+ Add ${field.label.replace(/s$/, '')}</button>`;
+            if (hasItemOAuth) {
+                html += `<button type="button" class="add-item-btn" onclick="addOAuthAccount('${fieldName}')">+ Add ${field.label.replace(/s$/, '')}</button>`;
+            } else {
+                html += `<button type="button" class="add-item-btn" onclick="addListItem('${fieldName}')">+ Add ${field.label.replace(/s$/, '')}</button>`;
+            }
             html += `</div>`;
 
             return html;
         }
 
         // Render a single item in a list field
-        function renderListItem(fieldName, itemFields, item, index) {
+        function renderListItem(fieldName, itemFields, item, index, hasItemOAuth = false) {
             const slug = item.slug || `Item ${index + 1}`;
+            const isAuthorized = hasItemOAuth && (item.access_token || item.refresh_token);
 
-            let html = `<div class="list-item" data-index="${index}">`;
+            let html = `<div class="list-item" data-index="${index}" data-slug="${escapeHtml(slug)}">`;
             html += `<div class="list-item-header">`;
-            html += `<span class="list-item-title">${escapeHtml(slug)}</span>`;
+            html += `<span class="list-item-title">${escapeHtml(slug)}`;
+            if (hasItemOAuth) {
+                if (isAuthorized) {
+                    html += ` <span style="color:var(--green);font-size:0.8rem">✓ authorized</span>`;
+                } else {
+                    html += ` <span style="color:var(--yellow);font-size:0.8rem">⚠ pending auth</span>`;
+                }
+            }
+            html += `</span>`;
+            html += `<div style="display:flex;gap:0.5rem;align-items:center">`;
+            if (hasItemOAuth) {
+                html += `<button type="button" style="background:var(--accent);color:white;border:none;padding:0.25rem 0.5rem;border-radius:4px;font-size:0.75rem;cursor:pointer" onclick="authorizeAccount('${fieldName}', '${escapeHtml(slug)}')">${isAuthorized ? 'Re-auth' : 'Authorize'}</button>`;
+            }
             html += `<button type="button" class="list-item-remove" onclick="removeListItem('${fieldName}', ${index})" title="Remove">×</button>`;
+            html += `</div>`;
             html += `</div>`;
 
             html += `<div class="list-item-fields">`;
@@ -1585,13 +1613,199 @@
                 newItem[itemField.name] = itemField.default || '';
             }
 
-            const html = renderListItem(fieldName, field.item_fields || [], newItem, index);
+            const html = renderListItem(fieldName, field.item_fields || [], newItem, index, !!field.item_oauth);
             container.insertAdjacentHTML('beforeend', html);
 
             // Focus first input of new item
             const newItemEl = container.lastElementChild;
             const firstInput = newItemEl.querySelector('input');
             if (firstInput) firstInput.focus();
+        }
+
+        // Add a new OAuth account (inline input then authorizes)
+        async function addOAuthAccount(fieldName) {
+            const field = currentSkill.fields.find(f => f.name === fieldName);
+            if (!field || !field.item_oauth) return;
+
+            const container = document.getElementById(`list-items-${fieldName}`);
+
+            // Check if there's already an input form
+            if (container.querySelector('.new-account-form')) return;
+
+            // Remove empty message if present
+            const emptyMsg = container.querySelector('.list-empty');
+            if (emptyMsg) emptyMsg.remove();
+
+            // Add inline input form
+            const formHtml = `
+                <div class="list-item new-account-form" style="border-color:var(--accent)">
+                    <div class="list-item-fields">
+                        <div class="list-item-field">
+                            <label>Account Name <span style="color:var(--red)">*</span></label>
+                            <input type="text" id="new-account-name-${fieldName}" placeholder="e.g., work, personal" autofocus>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
+                        <button type="button" class="btn btn-primary" style="padding:0.4rem 0.8rem;font-size:0.85rem" onclick="confirmNewOAuthAccount('${fieldName}')">Authorize</button>
+                        <button type="button" class="btn btn-secondary" style="padding:0.4rem 0.8rem;font-size:0.85rem" onclick="cancelNewOAuthAccount('${fieldName}')">Cancel</button>
+                    </div>
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', formHtml);
+
+            // Focus the input
+            const input = document.getElementById(`new-account-name-${fieldName}`);
+            input.focus();
+
+            // Handle Enter key
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    confirmNewOAuthAccount(fieldName);
+                } else if (e.key === 'Escape') {
+                    cancelNewOAuthAccount(fieldName);
+                }
+            });
+        }
+
+        // Cancel adding new OAuth account
+        function cancelNewOAuthAccount(fieldName) {
+            const container = document.getElementById(`list-items-${fieldName}`);
+            const form = container.querySelector('.new-account-form');
+            if (form) form.remove();
+
+            // Show empty message if no items
+            if (container.querySelectorAll('.list-item').length === 0) {
+                container.innerHTML = `<div class="list-empty">No items configured. Click "Add" to add one.</div>`;
+            }
+        }
+
+        // Confirm and authorize new OAuth account
+        async function confirmNewOAuthAccount(fieldName) {
+            const field = currentSkill.fields.find(f => f.name === fieldName);
+            if (!field || !field.item_oauth) return;
+
+            const input = document.getElementById(`new-account-name-${fieldName}`);
+            const accountName = input?.value?.trim();
+
+            if (!accountName) {
+                input.style.borderColor = 'var(--red)';
+                return;
+            }
+
+            const slug = accountName.toLowerCase().replace(/\s+/g, '-');
+            const container = document.getElementById(`list-items-${fieldName}`);
+
+            // Check if account already exists
+            const existingItems = container.querySelectorAll('.list-item:not(.new-account-form)');
+            for (const item of existingItems) {
+                if (item.dataset.slug === slug) {
+                    showToast(`Account "${slug}" already exists`, 'error');
+                    input.style.borderColor = 'var(--red)';
+                    return;
+                }
+            }
+
+            // Remove the input form
+            const inputForm = container.querySelector('.new-account-form');
+            if (inputForm) inputForm.remove();
+
+            // Get client credentials from form
+            const configForm = document.getElementById('config-form');
+            const formData = new FormData(configForm);
+
+            let clientId = null;
+            let clientSecret = null;
+
+            for (const f of currentSkill.fields || []) {
+                const value = formData.get(f.name);
+                if (f.env_var?.includes('CLIENT_ID')) {
+                    clientId = value || currentSkill.config?.[f.name];
+                } else if (f.env_var?.includes('CLIENT_SECRET')) {
+                    clientSecret = value || currentSkill.config?.[f.name];
+                }
+            }
+
+            if (!clientId || !clientSecret) {
+                showToast('Please enter Client ID and Client Secret first', 'error');
+                return;
+            }
+
+            // Add item to list (will show as pending)
+            const index = container.querySelectorAll('.list-item').length;
+            const newItem = { slug: slug };
+            const html = renderListItem(fieldName, field.item_fields || [], newItem, index, true);
+            container.insertAdjacentHTML('beforeend', html);
+
+            // Trigger OAuth
+            await authorizeAccount(fieldName, slug);
+        }
+
+        // Authorize a specific account via OAuth
+        async function authorizeAccount(fieldName, accountSlug) {
+            const field = currentSkill.fields.find(f => f.name === fieldName);
+            if (!field || !field.item_oauth) return;
+
+            // Get client credentials
+            const form = document.getElementById('config-form');
+            const formData = new FormData(form);
+
+            let clientId = null;
+            let clientSecret = null;
+
+            for (const f of currentSkill.fields || []) {
+                const value = formData.get(f.name);
+                if (f.env_var?.includes('CLIENT_ID')) {
+                    clientId = value || currentSkill.config?.[f.name];
+                } else if (f.env_var?.includes('CLIENT_SECRET')) {
+                    clientSecret = value || currentSkill.config?.[f.name];
+                }
+            }
+
+            if (!clientId || !clientSecret) {
+                showToast('Client ID and Client Secret are required', 'error');
+                return;
+            }
+
+            // Find the button and update it
+            const container = document.getElementById(`list-items-${fieldName}`);
+            const itemEl = Array.from(container.querySelectorAll('.list-item')).find(el => el.dataset.slug === accountSlug);
+            if (itemEl) {
+                const btn = itemEl.querySelector('button[onclick*="authorizeAccount"]');
+                if (btn) {
+                    btn.disabled = true;
+                    btn.innerHTML = '<span class="loading"></span>';
+                }
+            }
+
+            showToast('Opening browser for authorization...', 'success');
+
+            const response = await fetch(`${API}/skills/${currentSkill.id}/oauth-account`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    account: accountSlug,
+                    field: fieldName,
+                    client_id: clientId,
+                    client_secret: clientSecret
+                })
+            }).catch(() => null);
+
+            if (!response) {
+                showToast('Connection failed', 'error');
+                await refreshSkill();
+                return;
+            }
+
+            const result = await response.json().catch(() => ({ error: 'Unknown error' }));
+
+            if (result.error) {
+                showToast(result.error, 'error');
+            } else {
+                showToast(`Account "${accountSlug}" authorized!`);
+            }
+
+            await refreshSkill();
         }
 
         // Remove an item from a list field
@@ -1703,15 +1917,32 @@
                 // Handle list type fields
                 if (field.type === 'list') {
                     const items = collectListFieldData(field.name);
-                    // Preserve passwords for existing items
                     const existingItems = currentSkill.config?.[field.name] || [];
+
                     items.forEach((item, index) => {
+                        // Find matching existing item by slug first, then by index
+                        const existingBySlug = existingItems.find(e => e.slug === item.slug);
+                        const existingByIndex = existingItems[index];
+
+                        // Preserve passwords - try by slug first, then by index
                         for (const itemField of field.item_fields || []) {
                             if (itemField.type === 'password' && !item[itemField.name]) {
-                                // Find matching existing item by slug
-                                const existingItem = existingItems.find(e => e.slug === item.slug);
-                                if (existingItem && existingItem[itemField.name]) {
-                                    item[itemField.name] = existingItem[itemField.name];
+                                const source = existingBySlug || existingByIndex;
+                                if (source && source[itemField.name]) {
+                                    item[itemField.name] = source[itemField.name];
+                                }
+                            }
+                        }
+
+                        // Preserve OAuth tokens - try by slug first, then by index
+                        if (field.item_oauth) {
+                            const tokenSource = existingBySlug || existingByIndex;
+                            if (tokenSource) {
+                                const tokenMapping = field.item_oauth.token_mapping || {};
+                                for (const tokenKey of Object.keys(tokenMapping)) {
+                                    if (tokenSource[tokenKey] && !item[tokenKey]) {
+                                        item[tokenKey] = tokenSource[tokenKey];
+                                    }
                                 }
                             }
                         }

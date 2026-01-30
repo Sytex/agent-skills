@@ -1,5 +1,6 @@
 #!/bin/bash
 # Google Calendar API CLI with OAuth2 - Multi-account support
+# Shared app credentials, separate tokens per account
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$SCRIPT_DIR/.env"
@@ -44,8 +45,8 @@ load_config() {
     [[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
 }
 
-# Get account config value
-get_account_config() {
+# Get account token value
+get_account_token() {
     local account="$1"
     local field="$2"
     local name_upper=$(echo "$account" | tr '[:lower:]-' '[:upper:]_')
@@ -53,19 +54,33 @@ get_account_config() {
     echo "${!var_name:-}"
 }
 
-# Get list of configured accounts
+# Get list of configured accounts (by looking for REFRESH_TOKEN)
 get_configured_accounts() {
     [[ ! -f "$CONFIG_FILE" ]] && return
-    grep -o 'GCALENDAR_ACCOUNT_[A-Z0-9_]*_CLIENT_ID' "$CONFIG_FILE" 2>/dev/null | \
+    grep -o 'GCALENDAR_ACCOUNT_[A-Z0-9_]*_REFRESH_TOKEN' "$CONFIG_FILE" 2>/dev/null | \
         sed 's/^GCALENDAR_ACCOUNT_//' | \
-        sed 's/_CLIENT_ID$//' | \
+        sed 's/_REFRESH_TOKEN$//' | \
         tr '[:upper:]_' '[:lower:]-' | \
         sort -u
 }
 
-# Check for legacy single-account format (supports both GCALENDAR_CLIENT_ID and GCAL_CLIENT_ID)
+# Check for legacy single-account format
 has_legacy_config() {
-    [[ -f "$CONFIG_FILE" ]] && (grep -q '^GCALENDAR_CLIENT_ID=' "$CONFIG_FILE" 2>/dev/null || grep -q '^GCAL_CLIENT_ID=' "$CONFIG_FILE" 2>/dev/null)
+    [[ -f "$CONFIG_FILE" ]] && (grep -q '^GCALENDAR_ACCESS_TOKEN=' "$CONFIG_FILE" 2>/dev/null || grep -q '^GCALENDAR_REFRESH_TOKEN=' "$CONFIG_FILE" 2>/dev/null)
+}
+
+# Check if app credentials are configured
+has_app_credentials() {
+    load_config
+    [[ -n "${GCALENDAR_CLIENT_ID:-}" && -n "${GCALENDAR_CLIENT_SECRET:-}" ]] || \
+    [[ -n "${GCAL_CLIENT_ID:-}" && -n "${GCAL_CLIENT_SECRET:-}" ]]
+}
+
+# Get app credentials (shared across all accounts)
+get_app_credentials() {
+    load_config
+    APP_CLIENT_ID="${GCALENDAR_CLIENT_ID:-$GCAL_CLIENT_ID}"
+    APP_CLIENT_SECRET="${GCALENDAR_CLIENT_SECRET:-$GCAL_CLIENT_SECRET}"
 }
 
 # Resolve which account to use
@@ -96,24 +111,25 @@ resolve_account() {
 # Get credentials for current account
 get_credentials() {
     local account="$1"
+    load_config
+    get_app_credentials
 
-    # Legacy format support (both GCALENDAR_* and GCAL_* prefixes)
+    # App credentials (shared)
+    CURRENT_CLIENT_ID="$APP_CLIENT_ID"
+    CURRENT_CLIENT_SECRET="$APP_CLIENT_SECRET"
+
+    # Legacy format support
     if [[ "$account" == "default" ]] && has_legacy_config; then
-        load_config
-        CURRENT_CLIENT_ID="${GCALENDAR_CLIENT_ID:-$GCAL_CLIENT_ID}"
-        CURRENT_CLIENT_SECRET="${GCALENDAR_CLIENT_SECRET:-$GCAL_CLIENT_SECRET}"
         CURRENT_ACCESS_TOKEN="$GCALENDAR_ACCESS_TOKEN"
         CURRENT_REFRESH_TOKEN="$GCALENDAR_REFRESH_TOKEN"
         CURRENT_TOKEN_EXPIRES="$GCALENDAR_TOKEN_EXPIRES"
         return
     fi
 
-    load_config
-    CURRENT_CLIENT_ID=$(get_account_config "$account" "CLIENT_ID")
-    CURRENT_CLIENT_SECRET=$(get_account_config "$account" "CLIENT_SECRET")
-    CURRENT_ACCESS_TOKEN=$(get_account_config "$account" "ACCESS_TOKEN")
-    CURRENT_REFRESH_TOKEN=$(get_account_config "$account" "REFRESH_TOKEN")
-    CURRENT_TOKEN_EXPIRES=$(get_account_config "$account" "TOKEN_EXPIRES")
+    # Account-specific tokens
+    CURRENT_ACCESS_TOKEN=$(get_account_token "$account" "ACCESS_TOKEN")
+    CURRENT_REFRESH_TOKEN=$(get_account_token "$account" "REFRESH_TOKEN")
+    CURRENT_TOKEN_EXPIRES=$(get_account_token "$account" "TOKEN_EXPIRES")
 }
 
 save_tokens() {
@@ -170,10 +186,11 @@ refresh_token() {
 
 ensure_valid_token() {
     local account=$(resolve_account)
-    [[ -z "$account" ]] && echo "Error: No accounts configured. Run: gcalendar auth" && exit 1
+    [[ -z "$account" ]] && echo "Error: No accounts configured. Run: gcalendar auth --account <name>" && exit 1
 
     get_credentials "$account"
 
+    [[ -z "$CURRENT_CLIENT_ID" || -z "$CURRENT_CLIENT_SECRET" ]] && echo "Error: App credentials not configured. Set GCALENDAR_CLIENT_ID and GCALENDAR_CLIENT_SECRET" && exit 1
     [[ -z "$CURRENT_ACCESS_TOKEN" ]] && echo "Error: Not authenticated. Run: gcalendar auth --account $account" && exit 1
 
     local now=$(date +%s)
@@ -220,7 +237,22 @@ api_delete() {
 
 cmd_accounts() {
     load_config
-    echo -e "${BLUE}Configured Google Calendar accounts:${NC}"
+    get_app_credentials
+
+    echo -e "${BLUE}Google Calendar Configuration${NC}"
+    echo ""
+
+    # Show app credentials
+    if [[ -n "$APP_CLIENT_ID" ]]; then
+        echo -e "  ${GREEN}App credentials configured${NC}"
+        echo -e "    Client ID: ${APP_CLIENT_ID:0:30}..."
+    else
+        echo -e "  ${RED}App credentials not configured${NC}"
+        echo -e "    Set GCALENDAR_CLIENT_ID and GCALENDAR_CLIENT_SECRET"
+    fi
+    echo ""
+
+    echo -e "${BLUE}Authorized accounts:${NC}"
     echo ""
 
     local current=$(resolve_account)
@@ -232,7 +264,6 @@ cmd_accounts() {
         local marker=""
         [[ "$current" == "default" ]] && marker=" ${GREEN}(active)${NC}"
         echo -e "  ${YELLOW}●${NC} default (legacy)$marker"
-        echo -e "    Client ID: ${GCALENDAR_CLIENT_ID:0:30}..."
         [[ -n "$GCALENDAR_ACCESS_TOKEN" ]] && echo -e "    Status: ${GREEN}authenticated${NC}" || echo -e "    Status: ${RED}not authenticated${NC}"
         echo ""
     fi
@@ -243,66 +274,79 @@ cmd_accounts() {
         found=true
         local marker=""
         [[ "$account" == "$current" ]] && marker=" ${GREEN}(active)${NC}"
-        local client_id=$(get_account_config "$account" "CLIENT_ID")
-        local access_token=$(get_account_config "$account" "ACCESS_TOKEN")
+        local access_token=$(get_account_token "$account" "ACCESS_TOKEN")
 
         echo -e "  ${YELLOW}●${NC} $account$marker"
-        echo -e "    Client ID: ${client_id:0:30}..."
         [[ -n "$access_token" ]] && echo -e "    Status: ${GREEN}authenticated${NC}" || echo -e "    Status: ${RED}not authenticated${NC}"
         echo ""
     done < <(get_configured_accounts)
 
     if [[ "$found" == "false" ]]; then
-        echo -e "  ${RED}No accounts configured.${NC}"
+        echo -e "  ${YELLOW}No accounts authorized yet.${NC}"
         echo ""
-        echo "Run 'gcalendar auth' to add an account."
+        echo "  Run 'gcalendar auth --account <name>' to authorize an account."
     fi
 }
 
 # === AUTH ===
 
 cmd_auth() {
-    local account=$(resolve_account)
+    local account="$SELECTED_ACCOUNT"
     [[ -z "$account" ]] && account="default"
 
-    echo "Google Calendar OAuth2 Setup"
-    echo "============================="
+    load_config
+    get_app_credentials
+
+    echo "Google Calendar OAuth2 Authorization"
+    echo "====================================="
     echo ""
     echo "Account: $account"
     echo ""
-    echo "1. Go to https://console.cloud.google.com/apis/credentials"
-    echo "2. Create OAuth 2.0 Client ID (Desktop app)"
-    echo "3. Enable Google Calendar API in your project"
-    echo ""
 
-    read -p "Client ID: " client_id
-    read -p "Client Secret: " client_secret
+    # Check if app credentials exist
+    if [[ -z "$APP_CLIENT_ID" || -z "$APP_CLIENT_SECRET" ]]; then
+        echo "App credentials not found. Setting up..."
+        echo ""
+        echo "1. Go to https://console.cloud.google.com/apis/credentials"
+        echo "2. Create OAuth 2.0 Client ID (Desktop app)"
+        echo "3. Enable Google Calendar API in your project"
+        echo ""
 
-    [[ -z "$client_id" || -z "$client_secret" ]] && echo "Error: Both values required" && exit 1
+        read -p "Client ID: " client_id
+        read -p "Client Secret: " client_secret
 
-    local name_upper=$(echo "$account" | tr '[:lower:]-' '[:upper:]_')
+        [[ -z "$client_id" || -z "$client_secret" ]] && echo "Error: Both values required" && exit 1
 
-    # Save client credentials
-    local temp_file=$(mktemp)
-    if [[ -f "$CONFIG_FILE" ]]; then
-        grep -v "^GCALENDAR_ACCOUNT_${name_upper}_\(CLIENT_ID\|CLIENT_SECRET\)=" "$CONFIG_FILE" > "$temp_file" || true
-    fi
-    cat >> "$temp_file" << EOF
-GCALENDAR_ACCOUNT_${name_upper}_CLIENT_ID="$client_id"
-GCALENDAR_ACCOUNT_${name_upper}_CLIENT_SECRET="$client_secret"
+        # Save app credentials
+        local temp_file=$(mktemp)
+        if [[ -f "$CONFIG_FILE" ]]; then
+            grep -v "^\(GCALENDAR_CLIENT_ID\|GCALENDAR_CLIENT_SECRET\)=" "$CONFIG_FILE" > "$temp_file" || true
+        fi
+        cat >> "$temp_file" << EOF
+GCALENDAR_CLIENT_ID="$client_id"
+GCALENDAR_CLIENT_SECRET="$client_secret"
 EOF
-    mv "$temp_file" "$CONFIG_FILE"
-    chmod 600 "$CONFIG_FILE"
+        mv "$temp_file" "$CONFIG_FILE"
+        chmod 600 "$CONFIG_FILE"
 
-    CURRENT_CLIENT_ID="$client_id"
-    CURRENT_CLIENT_SECRET="$client_secret"
+        APP_CLIENT_ID="$client_id"
+        APP_CLIENT_SECRET="$client_secret"
+        echo ""
+        echo -e "${GREEN}App credentials saved.${NC}"
+        echo ""
+    else
+        echo "Using existing app credentials."
+        echo "Client ID: ${APP_CLIENT_ID:0:30}..."
+        echo ""
+    fi
 
     local redirect_uri="urn:ietf:wg:oauth:2.0:oob"
-    local auth_url="${AUTH_URL}?client_id=${client_id}&redirect_uri=${redirect_uri}&response_type=code&scope=${SCOPES}&access_type=offline&prompt=consent"
+    local auth_url="${AUTH_URL}?client_id=${APP_CLIENT_ID}&redirect_uri=${redirect_uri}&response_type=code&scope=${SCOPES}&access_type=offline&prompt=consent"
 
-    echo ""
     echo "Opening browser for authorization..."
-    echo "If it doesn't open, visit:"
+    echo "Sign in with the Google account you want to authorize as '$account'"
+    echo ""
+    echo "If browser doesn't open, visit:"
     echo "$auth_url"
     echo ""
 
@@ -314,8 +358,8 @@ EOF
 
     local response=$(curl -s -X POST "$TOKEN_URL" \
         -H "Content-Type: application/x-www-form-urlencoded" \
-        -d "client_id=$client_id" \
-        -d "client_secret=$client_secret" \
+        -d "client_id=$APP_CLIENT_ID" \
+        -d "client_secret=$APP_CLIENT_SECRET" \
         -d "code=$auth_code" \
         -d "grant_type=authorization_code" \
         -d "redirect_uri=$redirect_uri")
@@ -336,21 +380,26 @@ EOF
 cmd_status() {
     local account=$(resolve_account)
     load_config
+    get_app_credentials
 
     echo "Google Calendar Auth Status"
     echo "==========================="
 
+    if [[ -z "$APP_CLIENT_ID" ]]; then
+        echo "App credentials not configured."
+        echo "Run: gcalendar auth"
+        exit 0
+    fi
+
+    echo "Client ID: ${APP_CLIENT_ID:0:20}..."
+
     if [[ -z "$account" ]]; then
-        echo "No accounts configured. Run: gcalendar auth"
+        echo "No accounts authorized. Run: gcalendar auth --account <name>"
         exit 0
     fi
 
     echo "Account: $account"
     get_credentials "$account"
-
-    [[ -z "$CURRENT_CLIENT_ID" ]] && echo "Not configured. Run: gcalendar auth --account $account" && exit 0
-
-    echo "Client ID: ${CURRENT_CLIENT_ID:0:20}..."
 
     [[ -z "$CURRENT_ACCESS_TOKEN" ]] && echo "Status: Not authenticated" && exit 0
 
@@ -453,7 +502,6 @@ cmd_event_create() {
     # All-day event
     if [[ -n "$start_date" && -z "$start_time" ]]; then
         [[ -z "$end_date" ]] && end_date="$start_date"
-        # End date for all-day events must be day after
         end_date=$(date -j -f "%Y-%m-%d" "$end_date" +%Y-%m-%d 2>/dev/null || echo "$end_date")
         json=$(python3 << PYEOF
 import json
@@ -535,11 +583,11 @@ show_help() {
     echo "Google Calendar CLI (OAuth2) - Multi-account"
     echo ""
     echo "GLOBAL FLAGS:"
-    echo "  --account, -a <name>              Select account (default: first configured)"
+    echo "  --account, -a <name>              Select account (default: first authorized)"
     echo ""
     echo "SETUP:"
-    echo "  accounts                          List configured accounts"
-    echo "  auth                              Setup OAuth2 authentication"
+    echo "  accounts                          List app credentials and authorized accounts"
+    echo "  auth --account <name>             Authorize a Google account"
     echo "  status                            Check authentication status"
     echo ""
     echo "CALENDARS:"
@@ -574,13 +622,12 @@ show_help() {
     echo "                                    e.g., 'Meeting tomorrow at 3pm'"
     echo ""
     echo "EXAMPLES:"
-    echo "  gcalendar accounts"
-    echo "  gcalendar auth --account work"
-    echo "  gcalendar --account work events --today"
-    echo "  gcalendar --account personal events --week"
-    echo "  gcalendar events --today"
-    echo "  gcalendar event-create 'Team meeting' --date 2026-02-01"
-    echo "  gcalendar quick 'Lunch with John tomorrow at noon'"
+    echo "  gcalendar accounts                            # Show config and accounts"
+    echo "  gcalendar auth --account work                 # Authorize 'work' account"
+    echo "  gcalendar auth --account personal             # Authorize 'personal' account"
+    echo "  gcalendar --account work events --today       # Today's events from work"
+    echo "  gcalendar --account personal events --week    # Week events from personal"
+    echo "  gcalendar events --today                      # Default account"
 }
 
 # === MAIN ===
