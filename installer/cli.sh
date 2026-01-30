@@ -12,26 +12,186 @@ GUM_VERSION="0.14.5"
 # Provider configuration
 CONFIG_DIR="$HOME/.agent-skills"
 CONFIG_FILE="$CONFIG_DIR/config.json"
+PROVIDERS_FILE="$SCRIPT_DIR/providers.json"
 
-# Available providers (bash 3.2 compatible)
-PROVIDERS="claude codex gemini"
+# Load default providers from providers.json
+load_default_providers() {
+    python3 -c "
+import json
+from pathlib import Path
 
-get_provider_name() {
-    case "$1" in
-        claude) echo "Claude Code" ;;
-        codex) echo "Codex CLI" ;;
-        gemini) echo "Gemini CLI" ;;
-        *) echo "$1" ;;
-    esac
+providers_file = Path('$PROVIDERS_FILE')
+if providers_file.exists():
+    with open(providers_file) as f:
+        for p in json.load(f):
+            print(p['id'])
+"
 }
 
+# Get all providers (defaults + custom from config)
+get_all_providers() {
+    init_config
+    python3 -c "
+import json
+from pathlib import Path
+
+# Load defaults
+default_ids = set()
+providers_file = Path('$PROVIDERS_FILE')
+if providers_file.exists():
+    with open(providers_file) as f:
+        default_ids = {p['id'] for p in json.load(f)}
+
+# Load config
+config_file = Path('$CONFIG_FILE')
+config_ids = set()
+if config_file.exists():
+    with open(config_file) as f:
+        config = json.load(f)
+        config_ids = set(config.get('providers', {}).keys())
+
+# Combine: defaults first, then custom ones
+all_ids = list(default_ids) + [p for p in config_ids if p not in default_ids]
+for pid in all_ids:
+    print(pid)
+"
+}
+
+# Get provider name (from config or defaults)
+get_provider_name() {
+    local provider="$1"
+    python3 -c "
+import json
+from pathlib import Path
+
+provider = '$provider'
+
+# Check config first (for custom providers)
+config_file = Path('$CONFIG_FILE')
+if config_file.exists():
+    with open(config_file) as f:
+        config = json.load(f)
+        p_config = config.get('providers', {}).get(provider, {})
+        if p_config.get('name'):
+            print(p_config['name'])
+            exit(0)
+
+# Check defaults
+providers_file = Path('$PROVIDERS_FILE')
+if providers_file.exists():
+    with open(providers_file) as f:
+        for p in json.load(f):
+            if p['id'] == provider:
+                print(p['name'])
+                exit(0)
+
+# Fallback to ID
+print(provider)
+"
+}
+
+# Get provider default path (from config or defaults)
 get_provider_default_path() {
-    case "$1" in
-        claude) echo "$HOME/.claude/skills" ;;
-        codex) echo "$HOME/.codex/skills" ;;
-        gemini) echo "$HOME/.gemini/skills" ;;
-        *) echo "" ;;
-    esac
+    local provider="$1"
+    python3 -c "
+import json
+from pathlib import Path
+
+provider = '$provider'
+
+# Check config first (for custom path or custom provider)
+config_file = Path('$CONFIG_FILE')
+if config_file.exists():
+    with open(config_file) as f:
+        config = json.load(f)
+        p_config = config.get('providers', {}).get(provider, {})
+        if p_config.get('path'):
+            path = p_config['path']
+            print(path.replace('~', str(Path.home())))
+            exit(0)
+
+# Check defaults
+providers_file = Path('$PROVIDERS_FILE')
+if providers_file.exists():
+    with open(providers_file) as f:
+        for p in json.load(f):
+            if p['id'] == provider:
+                path = p['path']
+                print(path.replace('~', str(Path.home())))
+                exit(0)
+
+print('')
+"
+}
+
+# Check if provider is custom (not in defaults)
+is_custom_provider() {
+    local provider="$1"
+    python3 -c "
+import json
+from pathlib import Path
+
+provider = '$provider'
+
+providers_file = Path('$PROVIDERS_FILE')
+if providers_file.exists():
+    with open(providers_file) as f:
+        for p in json.load(f):
+            if p['id'] == provider:
+                exit(1)  # Not custom (found in defaults)
+
+exit(0)  # Custom (not found in defaults)
+"
+}
+
+# Add a custom provider to config
+add_custom_provider() {
+    local provider_id="$1"
+    local provider_name="$2"
+    local provider_path="$3"
+
+    init_config
+    python3 -c "
+import json
+from pathlib import Path
+
+config_file = Path('$CONFIG_FILE')
+with open(config_file, 'r') as f:
+    data = json.load(f)
+
+if 'providers' not in data:
+    data['providers'] = {}
+
+data['providers']['$provider_id'] = {
+    'enabled': True,
+    'path': '$provider_path',
+    'name': '$provider_name',
+    'custom': True
+}
+
+with open(config_file, 'w') as f:
+    json.dump(data, f, indent=2)
+"
+}
+
+# Remove a custom provider from config
+remove_custom_provider() {
+    local provider="$1"
+
+    init_config
+    python3 -c "
+import json
+from pathlib import Path
+
+config_file = Path('$CONFIG_FILE')
+with open(config_file, 'r') as f:
+    data = json.load(f)
+
+data.get('providers', {}).pop('$provider', None)
+
+with open(config_file, 'w') as f:
+    json.dump(data, f, indent=2)
+"
 }
 
 # Colors for fallback mode
@@ -399,106 +559,107 @@ manage_providers() {
     while true; do
         header "Manage Providers"
 
-        echo -e "${DIM}Skills will be installed to all enabled providers.${NC}"
+        echo -e "${DIM}Manage where skills can be installed.${NC}"
         echo ""
 
-        # Show current providers
-        local has_providers=false
-        for provider in $PROVIDERS; do
+        # Show all providers (defaults + custom)
+        echo "Default providers:"
+        while IFS= read -r provider; do
+            [[ -z "$provider" ]] && continue
+            is_custom_provider "$provider" && continue
             local name="$(get_provider_name "$provider")"
-            local path
-            path=$(get_provider_path "$provider")
+            local path="$(get_provider_default_path "$provider")"
+            echo -e "  ${CYAN}•${NC} $name"
+            echo -e "    ${DIM}$path${NC}"
+        done < <(get_all_providers)
+        echo ""
 
-            if [[ -n "$path" ]]; then
-                has_providers=true
-                echo -e "  ${GREEN}✓${NC} $name"
-                echo -e "    ${DIM}$path${NC}"
-            fi
-        done
+        # Show custom providers
+        local has_custom=false
+        while IFS= read -r provider; do
+            [[ -z "$provider" ]] && continue
+            is_custom_provider "$provider" || continue
+            has_custom=true
+            local name="$(get_provider_name "$provider")"
+            local path="$(get_provider_path "$provider")"
+            echo -e "  ${GREEN}•${NC} $name ${CYAN}(custom)${NC}"
+            echo -e "    ${DIM}$path${NC}"
+        done < <(get_all_providers)
 
-        if [[ "$has_providers" == "false" ]]; then
-            echo -e "  ${YELLOW}No providers configured${NC}"
+        if [[ "$has_custom" == "true" ]]; then
+            echo ""
         fi
-        echo ""
 
-        # Build menu options
+        # Build menu options: only custom providers can be removed
         local options=()
-        for provider in claude codex gemini; do
+        while IFS= read -r provider; do
+            [[ -z "$provider" ]] && continue
+            is_custom_provider "$provider" || continue
             local name="$(get_provider_name "$provider")"
-            local path
-            path=$(get_provider_path "$provider")
+            options+=("Remove $name")
+        done < <(get_all_providers)
 
-            if [[ -z "$path" ]]; then
-                options+=("Add $name")
-            else
-                options+=("Remove $name")
-            fi
-        done
+        [[ ${#options[@]} -gt 0 ]] && options+=("─────────────")
+        options+=("Add custom provider")
         options+=("Back")
 
         local action
         action=$(choose "Select action:" "${options[@]}")
 
-        case "$action" in
-            "Add Claude Code")
-                set_provider "claude" "true" "$(get_provider_default_path "claude")"
-                style green "Added Claude Code"
-                ;;
-            "Add Codex CLI")
-                set_provider "codex" "true" "$(get_provider_default_path "codex")"
-                style green "Added Codex CLI"
-                ;;
-            "Add Gemini CLI")
-                set_provider "gemini" "true" "$(get_provider_default_path "gemini")"
-                style green "Added Gemini CLI"
-                ;;
-            "Remove Claude Code")
-                remove_provider "claude"
-                style yellow "Removed Claude Code"
-                ;;
-            "Remove Codex CLI")
-                remove_provider "codex"
-                style yellow "Removed Codex CLI"
-                ;;
-            "Remove Gemini CLI")
-                remove_provider "gemini"
-                style yellow "Removed Gemini CLI"
-                ;;
-            "Back")
-                break
-                ;;
-        esac
+        [[ "$action" == "Back" ]] && break
+        [[ "$action" == "─────────────" ]] && continue
+
+        if [[ "$action" == "Add custom provider" ]]; then
+            echo ""
+            local custom_id custom_path
+
+            custom_id=$(input_text "Provider ID (e.g., cursor, windsurf)")
+            [[ -z "$custom_id" ]] && continue
+
+            # Normalize ID
+            custom_id=$(echo "$custom_id" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+
+            # Validate ID doesn't already exist
+            local existing_path
+            existing_path=$(get_provider_path "$custom_id" 2>/dev/null)
+            if [[ -n "$existing_path" ]]; then
+                style red "Provider '$custom_id' already exists"
+                read -p "Press Enter to continue..."
+                continue
+            fi
+
+            custom_path=$(input_text "Install path" "$HOME/.$custom_id/skills")
+
+            add_custom_provider "$custom_id" "$custom_id" "$custom_path"
+            style green "Added custom provider: $custom_id"
+        elif [[ "$action" == Remove* ]]; then
+            # Extract provider name from action
+            local action_name="${action#Remove }"
+            # Find provider ID by name (only custom providers)
+            while IFS= read -r provider; do
+                is_custom_provider "$provider" || continue
+                local name="$(get_provider_name "$provider")"
+                if [[ "$name" == "$action_name" ]]; then
+                    remove_custom_provider "$provider"
+                    style yellow "Removed $name"
+                    break
+                fi
+            done < <(get_all_providers)
+        fi
 
         echo ""
         read -p "Press Enter to continue..."
     done
 }
 
-# Switch provider view menu
-# Prompt to configure providers if none are set
+# Ensure default providers are registered in config
 ensure_providers() {
     if ! has_enabled_providers; then
-        header "Welcome to Agent Skills"
-
-        echo "No providers configured yet."
-        echo "Select which AI coding agents you use:"
-        echo ""
-
-        for provider in claude codex gemini; do
-            local name="$(get_provider_name "$provider")"
-            if confirm "Enable $name?"; then
-                set_provider "$provider" "true" "$(get_provider_default_path "$provider")"
-                style green "Added $name"
-            fi
-        done
-
-        echo ""
-
-        if ! has_enabled_providers; then
-            style yellow "No providers selected. You can add them later from the menu."
-            echo ""
-            read -p "Press Enter to continue..."
-        fi
+        # Auto-register all default providers
+        while IFS= read -r provider; do
+            [[ -z "$provider" ]] && continue
+            set_provider "$provider" "true" "$(get_provider_default_path "$provider")"
+        done < <(load_default_providers)
     fi
 }
 
@@ -1285,11 +1446,19 @@ from pathlib import Path
 
 skills_dir = Path('$SKILLS_DIR')
 config_file = Path.home() / '.agent-skills' / 'config.json'
+providers_file = Path('$PROVIDERS_FILE')
+
+# Load default provider names
+default_provider_names = {}
+if providers_file.exists():
+    with open(providers_file) as f:
+        for p in json.load(f):
+            default_provider_names[p['id']] = p['name'].split()[0]  # First word (e.g., 'Claude' from 'Claude Code')
 
 with open(config_file) as f:
     config = json.load(f)
 
-providers = [(p, info.get('path', '')) for p, info in config.get('providers', {}).items() if info.get('enabled')]
+providers = [(p, info.get('path', ''), info.get('name', '')) for p, info in config.get('providers', {}).items() if info.get('enabled')]
 
 for skill_dir in sorted(skills_dir.iterdir()):
     skill_json = skill_dir / 'skill.json'
@@ -1313,8 +1482,9 @@ for skill_dir in sorted(skills_dir.iterdir()):
 
     # Check status for each provider
     badges = ''
-    for p, base_path in providers:
-        name = {'claude': 'Claude', 'codex': 'Codex', 'gemini': 'Gemini'}.get(p, p)
+    for p, base_path, config_name in providers:
+        # Get short name: from config, from defaults, or use ID
+        name = config_name.split()[0] if config_name else default_provider_names.get(p, p)
         install_path = Path(base_path) / skill_id if base_path else None
 
         if not install_path or not install_path.is_dir():
@@ -1383,20 +1553,46 @@ skill_menu() {
         action=$(choose "Select action:" "${actions[@]}")
 
         case "$action" in
-            "Install in Claude Code") check_dependencies "$skill" && install_files_to_provider "$skill" "claude" && style green "Installed in Claude Code" ;;
-            "Install in Codex CLI") check_dependencies "$skill" && install_files_to_provider "$skill" "codex" && style green "Installed in Codex CLI" ;;
-            "Install in Gemini CLI") check_dependencies "$skill" && install_files_to_provider "$skill" "gemini" && style green "Installed in Gemini CLI" ;;
-            "Update in Claude Code") check_dependencies "$skill" && install_files_to_provider "$skill" "claude" && style green "Updated in Claude Code" ;;
-            "Update in Codex CLI") check_dependencies "$skill" && install_files_to_provider "$skill" "codex" && style green "Updated in Codex CLI" ;;
-            "Update in Gemini CLI") check_dependencies "$skill" && install_files_to_provider "$skill" "gemini" && style green "Updated in Gemini CLI" ;;
-            "Remove from Claude Code") uninstall_from_provider "$skill" "claude"; style yellow "Removed from Claude Code" ;;
-            "Remove from Codex CLI") uninstall_from_provider "$skill" "codex"; style yellow "Removed from Codex CLI" ;;
-            "Remove from Gemini CLI") uninstall_from_provider "$skill" "gemini"; style yellow "Removed from Gemini CLI" ;;
             "Test") do_test "$skill" ;;
             "Edit credentials") do_configure "$skill" ;;
             "Check dependencies") check_dependencies "$skill" ;;
             "─────────────") continue ;;
             "Back") break ;;
+            Install\ in\ *)
+                # Dynamic install: extract provider name
+                local pname="${action#Install in }"
+                # Find provider ID by name
+                while IFS= read -r provider; do
+                    local name="$(get_provider_name "$provider")"
+                    if [[ "$name" == "$pname" ]]; then
+                        check_dependencies "$skill" && install_files_to_provider "$skill" "$provider" && style green "Installed in $name"
+                        break
+                    fi
+                done < <(get_enabled_providers)
+                ;;
+            Update\ in\ *)
+                # Dynamic update: extract provider name
+                local pname="${action#Update in }"
+                while IFS= read -r provider; do
+                    local name="$(get_provider_name "$provider")"
+                    if [[ "$name" == "$pname" ]]; then
+                        check_dependencies "$skill" && install_files_to_provider "$skill" "$provider" && style green "Updated in $name"
+                        break
+                    fi
+                done < <(get_enabled_providers)
+                ;;
+            Remove\ from\ *)
+                # Dynamic remove: extract provider name
+                local pname="${action#Remove from }"
+                while IFS= read -r provider; do
+                    local name="$(get_provider_name "$provider")"
+                    if [[ "$name" == "$pname" ]]; then
+                        uninstall_from_provider "$skill" "$provider"
+                        style yellow "Removed from $name"
+                        break
+                    fi
+                done < <(get_enabled_providers)
+                ;;
         esac
 
         echo ""

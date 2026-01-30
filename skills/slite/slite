@@ -1,7 +1,8 @@
 #!/bin/bash
 # Slite API operations - Works with any AI agent
 
-CONFIG_FILE="$HOME/.claude/skills/slite/.env"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/.env"
 source "$CONFIG_FILE" 2>/dev/null
 
 API_BASE="https://api.slite.com/v1"

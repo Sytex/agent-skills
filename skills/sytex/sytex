@@ -1,7 +1,8 @@
 #!/bin/bash
 # Sytex API CLI
 
-CONFIG_FILE="$HOME/.claude/skills/sytex/.env"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/.env"
 source "$CONFIG_FILE" 2>/dev/null
 
 if [[ -z "$SYTEX_TOKEN" ]]; then

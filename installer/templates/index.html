@@ -35,9 +35,30 @@
         }
 
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             padding: 2rem;
+        }
+
+        .main-layout {
+            display: grid;
+            grid-template-columns: 1fr 280px;
+            gap: 2rem;
+        }
+
+        @media (max-width: 900px) {
+            .main-layout {
+                grid-template-columns: 1fr;
+            }
+            .right-panel {
+                order: -1;
+            }
+        }
+
+        .right-panel {
+            position: sticky;
+            top: 2rem;
+            align-self: start;
         }
 
         header {
@@ -57,8 +78,8 @@
 
         .skills-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 1.5rem;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.25rem;
         }
 
         .skill-card {
@@ -822,6 +843,105 @@
             border-color: var(--accent);
             color: var(--accent);
         }
+
+        /* Provider management section */
+        .providers-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+        }
+
+        .providers-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .providers-section-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .providers-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .provider-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.6rem 0.75rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+
+        .provider-item-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .provider-item-name {
+            font-weight: 500;
+        }
+
+        .provider-item-custom {
+            font-size: 0.65rem;
+            padding: 0.1rem 0.35rem;
+            border-radius: 4px;
+            background: rgba(6, 182, 212, 0.15);
+            color: var(--cyan);
+            text-transform: uppercase;
+        }
+
+        .provider-item-remove {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0.25rem;
+            color: var(--text-dim);
+            font-size: 1rem;
+            line-height: 1;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .provider-item:hover .provider-item-remove {
+            opacity: 1;
+        }
+
+        .provider-item-remove:hover {
+            color: var(--red);
+        }
+
+        .add-provider-chip {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.35rem;
+            padding: 0.6rem 0.75rem;
+            background: none;
+            border: 1px dashed var(--border);
+            border-radius: 8px;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+
+        .add-provider-chip:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
     </style>
 </head>
 <body>
@@ -835,12 +955,25 @@
             </div>
         </header>
 
-        <div class="skills-grid" id="skills-grid">
-            <!-- Skills loaded dynamically -->
+        <div class="main-layout">
+            <div class="skills-grid" id="skills-grid">
+                <!-- Skills loaded dynamically -->
+            </div>
+
+            <div class="right-panel">
+                <div class="providers-section" id="providers-section">
+                    <div class="providers-section-header">
+                        <span class="providers-section-title">Providers</span>
+                    </div>
+                    <div class="providers-list" id="providers-list">
+                        <!-- Providers loaded dynamically -->
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- Modal -->
+    <!-- Skill Modal -->
     <div class="modal-overlay" id="modal-overlay">
         <div class="modal" id="modal">
             <div class="modal-header">
@@ -849,6 +982,35 @@
             </div>
             <div class="modal-body" id="modal-body">
                 <!-- Content loaded dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Provider Modal -->
+    <div class="modal-overlay" id="provider-modal-overlay">
+        <div class="modal" style="max-width:450px">
+            <div class="modal-header">
+                <h2>Add Custom Provider</h2>
+                <button class="modal-close" onclick="closeProviderModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="color:var(--text-dim);margin-bottom:1.5rem">Add a custom AI coding agent to install skills to.</p>
+                <form id="provider-form">
+                    <div class="form-group">
+                        <label class="form-label">Provider ID <span class="required">*</span></label>
+                        <div class="form-help">Lowercase identifier (e.g., cursor, windsurf, aider)</div>
+                        <input type="text" class="form-input" name="id" required pattern="[a-z0-9-]+" placeholder="cursor" oninput="updatePathPlaceholder(this.value)">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Install Path <span class="required">*</span></label>
+                        <div class="form-help">Directory where skills will be installed</div>
+                        <input type="text" class="form-input" name="path" id="provider-path-input" required placeholder="~/.cursor/skills">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeProviderModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="addProvider()">Add Provider</button>
             </div>
         </div>
     </div>
@@ -863,7 +1025,120 @@
         async function loadProviders() {
             const response = await fetch(`${API}/providers`);
             providers = await response.json();
+            renderProviders();
         }
+
+        // Render providers section
+        function renderProviders() {
+            const list = document.getElementById('providers-list');
+
+            let html = providers.map(p => {
+                const customBadge = p.custom ? '<span class="provider-item-custom">custom</span>' : '';
+                const removeBtn = p.custom ? `<button class="provider-item-remove" onclick="event.stopPropagation(); removeProvider('${p.id}')" title="Remove">×</button>` : '';
+
+                return `
+                    <div class="provider-item">
+                        <div class="provider-item-info">
+                            <span class="provider-item-name">${escapeHtml(p.name)}</span>
+                            ${customBadge}
+                        </div>
+                        ${removeBtn}
+                    </div>
+                `;
+            }).join('');
+
+            html += `<button class="add-provider-chip" onclick="openProviderModal()">+ Add</button>`;
+
+            list.innerHTML = html;
+        }
+
+        // Open add provider modal
+        function openProviderModal() {
+            document.getElementById('provider-form').reset();
+            document.getElementById('provider-modal-overlay').classList.add('active');
+        }
+
+        // Close add provider modal
+        function closeProviderModal() {
+            document.getElementById('provider-modal-overlay').classList.remove('active');
+        }
+
+        // Update path placeholder based on ID input
+        function updatePathPlaceholder(id) {
+            const pathInput = document.getElementById('provider-path-input');
+            if (id) {
+                pathInput.placeholder = `~/.${id}/skills`;
+            } else {
+                pathInput.placeholder = '~/.cursor/skills';
+            }
+        }
+
+        // Add custom provider
+        async function addProvider() {
+            const form = document.getElementById('provider-form');
+            const formData = new FormData(form);
+
+            const id = formData.get('id').trim().toLowerCase().replace(/\s+/g, '-');
+            let path = formData.get('path').trim();
+
+            if (!id || !path) {
+                showToast('All fields are required', 'error');
+                return;
+            }
+
+            // Expand ~ to home directory hint (server will handle actual expansion)
+            if (!path.startsWith('~') && !path.startsWith('/')) {
+                path = '~/' + path;
+            }
+
+            const response = await fetch(`${API}/providers/add`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, name: id, path })
+            }).catch(() => null);
+
+            if (!response) {
+                showToast('Connection failed', 'error');
+                return;
+            }
+
+            const result = await response.json().catch(() => ({ error: 'Unknown error' }));
+
+            if (!response.ok || result.error) {
+                showToast(result.error || 'Failed to add provider', 'error');
+                return;
+            }
+
+            closeProviderModal();
+            showToast(`Added provider: ${id}`);
+            await loadProviders();
+            await loadSkills();
+        }
+
+        // Remove custom provider
+        async function removeProvider(providerId) {
+            const provider = providers.find(p => p.id === providerId);
+            if (!confirm(`Remove provider "${provider?.name || providerId}"?`)) return;
+
+            const response = await fetch(`${API}/providers/${providerId}`, {
+                method: 'DELETE'
+            }).catch(() => null);
+
+            if (!response || !response.ok) {
+                const result = response ? await response.json().catch(() => ({})) : {};
+                showToast(result.error || 'Failed to remove provider', 'error');
+                return;
+            }
+
+            showToast('Provider removed');
+            await loadProviders();
+            await loadSkills();
+        }
+
+        // Close provider modal on overlay click
+        document.getElementById('provider-modal-overlay').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) closeProviderModal();
+        });
 
         // Check for updates
         async function checkForUpdates() {
@@ -915,6 +1190,12 @@
 
         // Get short provider name
         function shortProviderName(providerId) {
+            const provider = providers.find(p => p.id === providerId);
+            if (provider && provider.name) {
+                // Return first word of name (e.g., "Claude" from "Claude Code")
+                return provider.name.split(' ')[0];
+            }
+            // Fallback for known defaults
             switch(providerId) {
                 case 'claude': return 'Claude';
                 case 'codex': return 'Codex';
@@ -925,10 +1206,10 @@
 
         // Render provider badges for a skill
         function renderProviderBadges(skill) {
-            const enabledProviders = providers.filter(p => p.enabled);
-            if (enabledProviders.length === 0) return '';
+            const allProviders = providers;
+            if (allProviders.length === 0) return '';
 
-            const badges = enabledProviders.map(p => {
+            const badges = allProviders.map(p => {
                 const status = skill.provider_status?.[p.id] || 'not_installed';
                 const cssClass = status === 'configured' || status === 'installed' ? 'installed' : status.replace('_', '-');
                 return `<span class="provider-badge ${cssClass}">${shortProviderName(p.id)}</span>`;
@@ -990,13 +1271,13 @@
 
         // Render provider toggles section
         function renderProviderToggles(skill) {
-            const enabledProviders = providers.filter(p => p.enabled);
-            if (enabledProviders.length === 0) return '';
+            const allProviders = providers;
+            if (allProviders.length === 0) return '';
 
             let html = '<div class="provider-toggles">';
             html += '<div class="provider-toggles-label">Install in:</div>';
 
-            for (const p of enabledProviders) {
+            for (const p of allProviders) {
                 const status = skill.provider_status?.[p.id] || 'not_installed';
                 const statusLabel = status === 'installed' || status === 'configured' ? 'Installed' : status === 'outdated' ? 'Update available' : 'Not installed';
                 const statusClass = status === 'configured' ? 'installed' : status.replace('_', '-');

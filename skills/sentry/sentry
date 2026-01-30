@@ -3,7 +3,8 @@
 
 set -e
 
-CONFIG_FILE="$HOME/.claude/skills/sentry/.env"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_FILE="$SCRIPT_DIR/.env"
 
 # Load config
 if [[ ! -f "$CONFIG_FILE" ]]; then

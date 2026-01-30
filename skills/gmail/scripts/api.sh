@@ -1,7 +1,8 @@
 #!/bin/bash
 # Gmail IMAP operations
 
-CONFIG_DIR="$HOME/.claude/skills/gmail"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_DIR="$(dirname "$SCRIPT_DIR")"
 CONFIG_FILE="$CONFIG_DIR/.env"
 
 [[ ! -f "$CONFIG_FILE" ]] && echo "Error: Not configured. Create $CONFIG_FILE with GMAIL_EMAIL and GMAIL_APP_PASSWORD" && exit 1

@@ -16,16 +16,39 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent.resolve()
 SKILLS_DIR = SCRIPT_DIR.parent / "skills"
 TEMPLATES_DIR = SCRIPT_DIR / "templates"
+PROVIDERS_FILE = SCRIPT_DIR / "providers.json"
 
 # Provider configuration
 CONFIG_DIR = Path.home() / ".agent-skills"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
-AVAILABLE_PROVIDERS = {
-    "claude": {"name": "Claude Code", "path": str(Path.home() / ".claude/skills")},
-    "codex": {"name": "Codex CLI", "path": str(Path.home() / ".codex/skills")},
-    "gemini": {"name": "Gemini CLI", "path": str(Path.home() / ".gemini/skills")},
-}
+
+def load_default_providers():
+    """Load default providers from providers.json."""
+    if not PROVIDERS_FILE.exists():
+        return {}
+    with open(PROVIDERS_FILE) as f:
+        providers = json.load(f)
+    return {
+        p["id"]: {
+            "name": p["name"],
+            "path": p["path"].replace("~", str(Path.home()))
+        }
+        for p in providers
+    }
+
+
+def get_all_provider_ids():
+    """Get list of all provider IDs (defaults + custom)."""
+    defaults = set(load_default_providers().keys())
+    config = load_config()
+    config_ids = set(config.get("providers", {}).keys())
+    return list(defaults | config_ids)
+
+
+def is_custom_provider(provider_id):
+    """Check if a provider is custom (not in defaults)."""
+    return provider_id not in load_default_providers()
 
 
 def init_config():
@@ -85,16 +108,27 @@ def get_providers_status():
     """Get all providers with their status."""
     config = load_config()
     selected = get_selected_provider()
+    defaults = load_default_providers()
     result = []
-    for pid, info in AVAILABLE_PROVIDERS.items():
+
+    # Process all known providers (defaults + custom from config)
+    all_provider_ids = get_all_provider_ids()
+
+    for pid in all_provider_ids:
         provider_config = config.get("providers", {}).get(pid, {})
+        default_info = defaults.get(pid, {})
+
+        # Custom providers don't have default info
+        is_custom = pid not in defaults
+
         result.append({
             "id": pid,
-            "name": info["name"],
-            "default_path": info["path"],
+            "name": provider_config.get("name") or default_info.get("name", pid),
+            "default_path": default_info.get("path", ""),
             "enabled": provider_config.get("enabled", False),
-            "path": provider_config.get("path", info["path"]),
+            "path": provider_config.get("path") or default_info.get("path", ""),
             "selected": pid == selected,
+            "custom": is_custom,
         })
     return result
 
@@ -117,16 +151,38 @@ def set_selected_provider(provider_id):
     save_config(config)
 
 
-def set_provider(provider_id, enabled, path=None):
+def set_provider(provider_id, enabled, path=None, name=None, custom=False):
     """Enable or disable a provider."""
     config = load_config()
     if "providers" not in config:
         config["providers"] = {}
 
-    if path is None:
-        path = AVAILABLE_PROVIDERS.get(provider_id, {}).get("path", "")
+    defaults = load_default_providers()
 
-    config["providers"][provider_id] = {"enabled": enabled, "path": path}
+    if path is None:
+        path = defaults.get(provider_id, {}).get("path", "")
+
+    provider_data = {"enabled": enabled, "path": path}
+
+    # Store name and custom flag for custom providers
+    if name:
+        provider_data["name"] = name
+    if custom:
+        provider_data["custom"] = True
+
+    config["providers"][provider_id] = provider_data
+    save_config(config)
+
+
+def add_custom_provider(provider_id, name, path):
+    """Add a custom provider."""
+    set_provider(provider_id, enabled=True, path=path, name=name, custom=True)
+
+
+def remove_custom_provider(provider_id):
+    """Remove a custom provider from config."""
+    config = load_config()
+    config.get("providers", {}).pop(provider_id, None)
     save_config(config)
 
 
@@ -690,9 +746,28 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
         """Handle CORS preflight."""
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
+
+    def do_DELETE(self):
+        """Handle DELETE requests."""
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        # Delete custom provider: DELETE /api/providers/{id}
+        if path.startswith("/api/providers/") and path.count("/") == 3:
+            provider_id = path.split("/")[3]
+
+            if not is_custom_provider(provider_id):
+                self.send_json({"error": "Cannot remove default provider"}, 400)
+                return
+
+            remove_custom_provider(provider_id)
+            self.send_json({"success": True, "message": "Provider removed"})
+            return
+
+        self.send_error(404)
 
     def do_GET(self):
         """Handle GET requests."""
@@ -742,16 +817,54 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
             provider_id = data.get("id")
             enabled = data.get("enabled", False)
             custom_path = data.get("path")
-            if provider_id in AVAILABLE_PROVIDERS:
-                set_provider(provider_id, enabled, custom_path)
+            custom_name = data.get("name")
+            is_custom = data.get("custom", False)
+
+            defaults = load_default_providers()
+            known_ids = get_all_provider_ids()
+
+            # Allow both default providers and already-known custom providers
+            if provider_id in known_ids:
+                set_provider(provider_id, enabled, custom_path, custom_name, is_custom)
                 self.send_json({"success": True, "message": f"Provider {'enabled' if enabled else 'disabled'}"})
             else:
                 self.send_json({"error": "Unknown provider"}, 400)
             return
 
+        if path == "/api/providers/add":
+            # Add a new custom provider
+            provider_id = data.get("id", "").strip().lower().replace(" ", "-")
+            name = data.get("name", "").strip() or provider_id  # Default name to ID
+            custom_path = data.get("path", "").strip()
+
+            if not provider_id or not custom_path:
+                self.send_json({"error": "id and path are required"}, 400)
+                return
+
+            # Check if ID already exists
+            if provider_id in get_all_provider_ids():
+                self.send_json({"error": f"Provider '{provider_id}' already exists"}, 400)
+                return
+
+            add_custom_provider(provider_id, name, custom_path)
+            self.send_json({"success": True, "message": f"Added custom provider: {provider_id}"})
+            return
+
+        if path.startswith("/api/providers/") and path.count("/") == 3:
+            # Delete custom provider: /api/providers/{id}
+            provider_id = path.split("/")[3]
+
+            if not is_custom_provider(provider_id):
+                self.send_json({"error": "Cannot remove default provider"}, 400)
+                return
+
+            remove_custom_provider(provider_id)
+            self.send_json({"success": True, "message": "Provider removed"})
+            return
+
         if path == "/api/providers/select":
             provider_id = data.get("id")
-            if provider_id in AVAILABLE_PROVIDERS:
+            if provider_id in get_all_provider_ids():
                 set_selected_provider(provider_id)
                 self.send_json({"success": True, "message": f"Selected {provider_id}"})
             else:
