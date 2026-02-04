@@ -6,7 +6,7 @@ description: |
   Trigger phrases: "how many tasks", "tasks completed by", "AI credits consumed",
   "report from Sytex", "statistics for [org name]", "data from [instance]".
   Covers organizations in: app, claro, ufinet, dt, adc, atis, exsei, integrar,
-  torresec, telesoluciones.
+  torresec.
 allowed-tools:
   - Bash(~/.claude/skills/database/*:*)
   - Read
@@ -40,7 +40,7 @@ Example: 113_dw_task = Tasks for org 113 (IHS Towers)
 
 Search across all instances:
 ```bash
-for db in sytex_app sytex_claro sytex_ufinet sytex_dt sytex_adc sytex_atis sytex_exsei sytex_integrar sytex_torresec sytex_telesoluciones; do
+for db in sytex_app sytex_claro sytex_ufinet sytex_dt sytex_adc sytex_atis sytex_exsei sytex_integrar sytex_torresec; do
   ~/.claude/skills/database/database --db us --database $db query "
     SELECT '$db' as instance, id as org_id, name
     FROM organizations_organization
@@ -141,7 +141,7 @@ When unsure which table to use:
 
 | Connection | Instances |
 |------------|-----------|
-| `us` | app, claro, ufinet, dt, adc, atis, exsei, integrar, torresec, telesoluciones |
+| `us` | app, claro, ufinet, dt, adc, atis, exsei, integrar, torresec |
 | `eu` | app_eu |
 
 ## Best Practices
