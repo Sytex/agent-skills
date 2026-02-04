@@ -90,8 +90,10 @@ cmd_issue() {
     [[ -z "$id" ]] && echo "Error: issue ID or identifier required" && exit 1
 
     # Check if it's an identifier (e.g., TEAM-123) or UUID
-    if [[ "$id" =~ ^[A-Z]+-[0-9]+$ ]]; then
-        gql "{ issueSearch(query: \\\"$id\\\", first: 1) { nodes { id identifier title description state { name } assignee { name } project { name } priority priorityLabel labels { nodes { name } } createdAt updatedAt comments { nodes { body user { name } createdAt } } } } }"
+    if [[ "$id" =~ ^([A-Z]+)-([0-9]+)$ ]]; then
+        local team_key="${BASH_REMATCH[1]}"
+        local issue_number="${BASH_REMATCH[2]}"
+        gql "{ issues(filter: { number: { eq: $issue_number }, team: { key: { eq: \\\"$team_key\\\" } } }, first: 1) { nodes { id identifier title description state { name } assignee { name } project { name } priority priorityLabel labels { nodes { name } } createdAt updatedAt comments { nodes { body user { name } createdAt } } } } }"
     else
         gql "{ issue(id: \\\"$id\\\") { id identifier title description state { name } assignee { name } project { name } priority priorityLabel labels { nodes { name } } createdAt updatedAt comments { nodes { body user { name } createdAt } } } }"
     fi
@@ -174,7 +176,7 @@ cmd_search() {
     local query="$1"
     local limit="${2:-10}"
     [[ -z "$query" ]] && echo "Error: search query required" && exit 1
-    gql "{ issueSearch(query: \\\"$query\\\", first: $limit) { nodes { id identifier title state { name } assignee { name } } } }"
+    gql "{ searchIssues(term: \\\"$query\\\", first: $limit) { nodes { id identifier title state { name } assignee { name } } } }"
 }
 
 # === COMMENTS ===
