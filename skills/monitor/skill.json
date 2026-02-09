@@ -29,7 +29,7 @@
       "type": "text",
       "required": true,
       "env_var": "MONITOR_ENVIRONMENTS",
-      "help": "Space-separated environment names (e.g., 'app claro ufinet dt adc app_eu')"
+      "help": "Space-separated environment names (e.g., 'app claro ufinet dt adc atis exsei integrar torresec tote demo claro-br alfred app_eu')"
     },
     {
       "name": "namespace_suffix",
