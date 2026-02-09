@@ -1,3 +1,10 @@
+---
+name: monitor
+description: Read-only infrastructure monitoring. Use when user asks about pod status, deployments, CPU, memory, restarts, 502 errors, slowness, cluster health, or wants to check if environments are running correctly.
+allowed-tools:
+  - Bash(~/.claude/skills/monitor/*:*)
+---
+
 # Monitor Skill
 
 You have **read-only** access to infrastructure monitoring through the `monitor` command. This queries Thanos (Prometheus-compatible API) for Kubernetes metrics.
