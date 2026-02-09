@@ -102,34 +102,87 @@ get_namespace() {
 
 # Test connectivity
 cmd_test() {
+    local errors=0
+
     echo -e "${BLUE}Testing Thanos connection...${NC}"
     echo ""
 
+    # 1. Connectivity
     local response
     response=$(curl -s --connect-timeout 5 --max-time 10 "${THANOS_URL}/-/ready" 2>&1)
 
     if [[ "$response" == *"ready"* ]] || [[ "$response" == *"OK"* ]]; then
-        echo -e "${GREEN}OK${NC} Thanos is reachable at $THANOS_URL"
+        echo -e "${GREEN}OK${NC}  Thanos reachable at $THANOS_URL"
     else
-        echo -e "${RED}Failed${NC} Could not reach Thanos at $THANOS_URL"
-        echo "Response: $response"
+        echo -e "${RED}FAIL${NC}  Could not reach Thanos at $THANOS_URL"
+        echo "  Response: $response"
         exit 1
     fi
 
-    # Quick metric count
-    echo ""
+    # 2. Query API works
     local up_result
     up_result=$(prometheus_query "count(up)")
-    local target_count
-    target_count=$(echo "$up_result" | jq -r '.data.result[0].value[1] // "0"' 2>/dev/null)
-    echo -e "${BLUE}Targets:${NC} $target_count active"
+    local status
+    status=$(echo "$up_result" | jq -r '.status' 2>/dev/null)
 
-    # List namespaces with deployments
+    if [[ "$status" == "success" ]]; then
+        local target_count
+        target_count=$(echo "$up_result" | jq -r '.data.result[0].value[1] // "0"' 2>/dev/null)
+        echo -e "${GREEN}OK${NC}  Query API working ($target_count targets)"
+    else
+        echo -e "${RED}FAIL${NC}  Query API not responding"
+        errors=$((errors + 1))
+    fi
+
+    # 3. kube-state-metrics available
+    local ksm_result
+    ksm_result=$(prometheus_query "count(kube_deployment_spec_replicas)")
+    local ksm_count
+    ksm_count=$(echo "$ksm_result" | jq -r '.data.result[0].value[1] // "0"' 2>/dev/null)
+
+    if [[ "$ksm_count" != "0" ]]; then
+        echo -e "${GREEN}OK${NC}  kube-state-metrics available ($ksm_count deployments)"
+    else
+        echo -e "${RED}FAIL${NC}  kube-state-metrics not found (pod/deployment queries won't work)"
+        errors=$((errors + 1))
+    fi
+
+    # 4. Container metrics (cadvisor)
+    local cadvisor_result
+    cadvisor_result=$(prometheus_query "count(container_cpu_usage_seconds_total)")
+    local cadvisor_count
+    cadvisor_count=$(echo "$cadvisor_result" | jq -r '.data.result[0].value[1] // "0"' 2>/dev/null)
+
+    if [[ "$cadvisor_count" != "0" ]]; then
+        echo -e "${GREEN}OK${NC}  Container metrics available (CPU, memory, network)"
+    else
+        echo -e "${YELLOW}WARN${NC}  Container metrics not found (resource queries won't work)"
+    fi
+
+    # 5. Check configured environments
     echo ""
-    echo -e "${BLUE}Namespaces with deployments:${NC}"
-    local ns_result
-    ns_result=$(prometheus_query "count(kube_deployment_spec_replicas) by (namespace)")
-    echo "$ns_result" | jq -r '.data.result[] | "  " + .metric.namespace + " (" + .value[1] + " deployments)"' 2>/dev/null
+    echo -e "${BLUE}Configured environments:${NC}"
+    for env in "${ENVIRONMENTS[@]}"; do
+        local ns=$(get_namespace "$env")
+        local deploy_result
+        deploy_result=$(prometheus_query "count(kube_deployment_spec_replicas{namespace=\"${ns}\"})")
+        local deploy_count
+        deploy_count=$(echo "$deploy_result" | jq -r '.data.result[0].value[1] // "0"' 2>/dev/null)
+
+        if [[ "$deploy_count" != "0" ]]; then
+            echo -e "  ${GREEN}OK${NC}  $env → $ns ($deploy_count deployments)"
+        else
+            echo -e "  ${YELLOW}--${NC}  $env → $ns (no metrics)"
+        fi
+    done
+
+    echo ""
+    if [[ "$errors" -gt 0 ]]; then
+        echo -e "${RED}$errors check(s) failed${NC}"
+        exit 1
+    else
+        echo -e "${GREEN}All checks passed${NC}"
+    fi
 }
 
 # List environments
