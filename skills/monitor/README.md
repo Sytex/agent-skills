@@ -4,23 +4,21 @@ Read-only infrastructure monitoring. Multiple approaches available depending on 
 
 ## Approaches
 
-### Approach A: Grafana API (current implementation)
+### Approach A: Grafana API
 
-Query Prometheus/Thanos metrics, Loki logs, and alerts through Grafana's API. Requires a Service Account token and network access to the Grafana workspace.
+Query Prometheus/Thanos metrics, Loki logs, and alerts through Grafana's API. Requires a Service Account token and network access to the Grafana workspace. Currently blocked (see Grafana section below).
 
-### Approach B: Direct Thanos/Loki/Tempo endpoints
+### Approach B: Direct Thanos/Loki/Tempo endpoints (current)
 
-Query the observability stack directly without going through Grafana. Simpler auth, fewer hops.
+Query the observability stack directly without going through Grafana. No auth needed, network-level access via VPN.
 
 **Known endpoints (prod cluster):**
 
 | Service | Endpoint | Status |
 |---------|----------|--------|
+| Thanos (metrics) | `thanos.sytex.io` | Accessible, no auth |
 | Tempo (traces) | `grafana-tempo.sytex.io` | Accessible, no auth, Tempo v2.7.1 |
-| Thanos (metrics) | **TBD** — ask infra team | Prometheus-compatible API |
 | Loki (logs) | **TBD** — ask infra team | LogQL API |
-
-Tempo is confirmed working. For metrics and logs, get the Thanos Query and Loki endpoints from the infra team.
 
 ### Approach C: AWS EKS MCP Server
 
@@ -155,7 +153,7 @@ Approaches can be combined. For example: B for metrics/logs + C for K8s troubles
 
 ```
 MONITOR_THANOS_URL="https://thanos.sytex.io"
-MONITOR_ENVIRONMENTS="app claro ufinet dt adc app_eu"
+MONITOR_ENVIRONMENTS="app claro ufinet dt adc atis exsei integrar torresec tote demo claro-br alfred app_eu"
 MONITOR_NAMESPACE_SUFFIX="-prd"
 ```
 
@@ -196,3 +194,15 @@ aws ec2 authorize-security-group-ingress --profile sytex-shared --region us-east
 ```
 
 Service Account `Kadmos` (sa-1-kadmos) with Viewer role is already created.
+
+---
+
+## Next Steps
+
+- [ ] **Loki logs**: Get Loki endpoint from infra team, add `logs <env> <app>` command
+- [ ] **EU cluster**: Get Thanos endpoint for EU cluster, add as second datasource for `app_eu`
+- [ ] **Grafana access**: Fix SG `sg-057a1b21f34938007` inbound rules to enable Grafana API (alerts, dashboards)
+- [ ] **App metrics**: Instrument Django/uWSGI/Celery with Prometheus client for request latency, queue depth, etc.
+- [ ] **ALB metrics**: Consider CloudWatch exporter or AWS MCP for ALB 5xx/latency metrics
+- [ ] **RabbitMQ metrics**: Enable Prometheus plugin on RabbitMQ for queue depth visibility
+- [ ] **EKS MCP**: Evaluate Approach C for direct K8s resource access (pod logs, events) via MCP
