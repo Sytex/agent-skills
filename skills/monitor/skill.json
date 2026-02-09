@@ -1,0 +1,46 @@
+{
+  "name": "monitor",
+  "title": "Infrastructure Monitor",
+  "description": "Read-only infrastructure monitoring via Thanos. Queries Prometheus metrics for pod status, deployments, and resource usage.",
+  "version": "1.0.0",
+  "setup_instructions": "Requires network access to Thanos endpoint (e.g., via VPN). No authentication needed if network-level access is available.",
+  "dependencies": [
+    {
+      "name": "jq",
+      "check": "jq --version",
+      "install": {
+        "darwin": "brew install jq",
+        "linux": "sudo apt-get install -y jq || sudo yum install -y jq"
+      }
+    }
+  ],
+  "fields": [
+    {
+      "name": "thanos_url",
+      "label": "Thanos URL",
+      "type": "text",
+      "required": true,
+      "env_var": "MONITOR_THANOS_URL",
+      "help": "Thanos Query API URL (e.g., 'https://thanos.sytex.io')"
+    },
+    {
+      "name": "environments",
+      "label": "Environments",
+      "type": "text",
+      "required": true,
+      "env_var": "MONITOR_ENVIRONMENTS",
+      "help": "Space-separated environment names (e.g., 'app claro ufinet dt adc app_eu')"
+    },
+    {
+      "name": "namespace_suffix",
+      "label": "Namespace Suffix",
+      "type": "text",
+      "required": false,
+      "default": "-prd",
+      "env_var": "MONITOR_NAMESPACE_SUFFIX",
+      "help": "Suffix appended to env name for K8s namespace (default: '-prd')"
+    }
+  ],
+  "test_command": "test",
+  "files": ["monitor", "SKILL.md", "README.md"]
+}

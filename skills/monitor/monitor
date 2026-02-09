@@ -1,0 +1,343 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Monitor - Read-only infrastructure monitoring via Thanos (Prometheus API)
+# Queries metrics directly from Thanos endpoint
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$SCRIPT_DIR/.env"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# Show usage
+cmd_help() {
+    cat << EOF
+${BLUE}Monitor - Infrastructure Monitoring via Thanos${NC}
+
+${YELLOW}Usage:${NC}
+  monitor <command> [arguments]
+
+${YELLOW}Commands:${NC}
+  ${GREEN}status${NC}                       Overview: pod status for all environments
+  ${GREEN}pods${NC} <env>                   Deployment and pod status (detailed)
+  ${GREEN}query${NC} <promql>               Run a custom PromQL query
+  ${GREEN}envs${NC}                         List configured environments
+  ${GREEN}test${NC}                         Test Thanos connectivity
+  ${GREEN}help${NC}                         Show this help message
+
+${YELLOW}Examples:${NC}
+  monitor status                          # Full overview
+  monitor pods app                        # Pod status for 'app' environment
+  monitor query 'up{namespace="app-prd"}' # Custom PromQL query
+
+${YELLOW}Notes:${NC}
+  - All operations are read-only
+  - Metrics come from Thanos (Prometheus-compatible API)
+EOF
+}
+
+# Help check before loading config
+if [[ "${1:-}" == "help" ]] || [[ "${1:-}" == "--help" ]] || [[ "${1:-}" == "-h" ]]; then
+    cmd_help
+    exit 0
+fi
+
+# Load environment variables
+if [[ -f "$ENV_FILE" ]]; then
+    set -a
+    source "$ENV_FILE"
+    set +a
+else
+    echo -e "${RED}Error: .env file not found at $ENV_FILE${NC}"
+    echo "Run the installer to configure monitor settings."
+    exit 1
+fi
+
+# Config
+THANOS_URL="${MONITOR_THANOS_URL:-}"
+IFS=' ' read -r -a ENVIRONMENTS <<< "${MONITOR_ENVIRONMENTS:-}"
+NAMESPACE_SUFFIX="${MONITOR_NAMESPACE_SUFFIX:--prd}"
+
+if [[ -z "$THANOS_URL" ]]; then
+    echo -e "${RED}Error: MONITOR_THANOS_URL is required${NC}"
+    exit 1
+fi
+
+# Remove trailing slash from URL
+THANOS_URL="${THANOS_URL%/}"
+
+# --- Thanos API helpers ---
+
+# URL-encode a query string (portable, no python dependency)
+urlencode() {
+    local string="$1"
+    python3 -c "import urllib.parse; print(urllib.parse.quote('''$string'''))" 2>/dev/null || {
+        # Fallback: basic encoding
+        echo "$string" | sed 's/ /%20/g; s/{/%7B/g; s/}/%7D/g; s/"/%22/g; s/=/%3D/g'
+    }
+}
+
+# Query Thanos (Prometheus-compatible API)
+prometheus_query() {
+    local query="$1"
+    local encoded_query
+    encoded_query=$(urlencode "$query")
+
+    curl -s --connect-timeout 5 --max-time 15 \
+        "${THANOS_URL}/api/v1/query?query=${encoded_query}"
+}
+
+# Get namespace for an environment
+get_namespace() {
+    local env="$1"
+    echo "${env}${NAMESPACE_SUFFIX}"
+}
+
+# --- Commands ---
+
+# Test connectivity
+cmd_test() {
+    echo -e "${BLUE}Testing Thanos connection...${NC}"
+    echo ""
+
+    local response
+    response=$(curl -s --connect-timeout 5 --max-time 10 "${THANOS_URL}/-/ready" 2>&1)
+
+    if [[ "$response" == *"ready"* ]] || [[ "$response" == *"OK"* ]]; then
+        echo -e "${GREEN}OK${NC} Thanos is reachable at $THANOS_URL"
+    else
+        echo -e "${RED}Failed${NC} Could not reach Thanos at $THANOS_URL"
+        echo "Response: $response"
+        exit 1
+    fi
+
+    # Quick metric count
+    echo ""
+    local up_result
+    up_result=$(prometheus_query "count(up)")
+    local target_count
+    target_count=$(echo "$up_result" | jq -r '.data.result[0].value[1] // "0"' 2>/dev/null)
+    echo -e "${BLUE}Targets:${NC} $target_count active"
+
+    # List namespaces with deployments
+    echo ""
+    echo -e "${BLUE}Namespaces with deployments:${NC}"
+    local ns_result
+    ns_result=$(prometheus_query "count(kube_deployment_spec_replicas) by (namespace)")
+    echo "$ns_result" | jq -r '.data.result[] | "  " + .metric.namespace + " (" + .value[1] + " deployments)"' 2>/dev/null
+}
+
+# List environments
+cmd_envs() {
+    echo -e "${BLUE}Configured environments:${NC}"
+    echo ""
+    for env in "${ENVIRONMENTS[@]}"; do
+        local ns=$(get_namespace "$env")
+        echo -e "  ${GREEN}$env${NC} → namespace: $ns"
+    done
+    echo ""
+    echo -e "${YELLOW}Thanos:${NC} $THANOS_URL"
+}
+
+# Pod status from Thanos
+cmd_pods() {
+    local env="${1:-}"
+
+    if [[ -z "$env" ]]; then
+        echo -e "${RED}Error: Environment name required${NC}"
+        echo "Usage: monitor pods <env>"
+        echo "Available: ${ENVIRONMENTS[*]}"
+        exit 1
+    fi
+
+    local ns=$(get_namespace "$env")
+
+    echo -e "${BLUE}Pods: $env${NC} (namespace: $ns)"
+    echo ""
+
+    # Deployment replicas: desired vs available
+    echo -e "${YELLOW}Deployments:${NC}"
+
+    local desired_result
+    desired_result=$(prometheus_query "kube_deployment_spec_replicas{namespace=\"${ns}\"}") || return 1
+
+    local available_result
+    available_result=$(prometheus_query "kube_deployment_status_replicas_available{namespace=\"${ns}\"}")
+
+    # Parse and display
+    local deployments
+    deployments=$(echo "$desired_result" | jq -r '
+        .data.result[] |
+        .metric.deployment + "|" + .value[1]
+    ' 2>/dev/null)
+
+    if [[ -z "$deployments" ]]; then
+        echo -e "  ${YELLOW}No deployments found in namespace $ns${NC}"
+        return
+    fi
+
+    while IFS='|' read -r deploy desired; do
+        [[ -z "$deploy" ]] && continue
+
+        local available
+        available=$(echo "$available_result" | jq -r \
+            --arg d "$deploy" \
+            '.data.result[] | select(.metric.deployment == $d) | .value[1] // "0"' 2>/dev/null)
+        available="${available:-0}"
+
+        if [[ "$available" == "$desired" ]]; then
+            echo -e "  ${GREEN}OK${NC}  $deploy ($available/$desired ready)"
+        else
+            echo -e "  ${RED}!!${NC}  $deploy ($available/$desired ready)"
+        fi
+    done <<< "$deployments"
+
+    # Pod phase summary
+    echo ""
+    echo -e "${YELLOW}Pod phases:${NC}"
+
+    local phases_result
+    phases_result=$(prometheus_query "sum by (phase) (kube_pod_status_phase{namespace=\"${ns}\"} == 1)")
+
+    echo "$phases_result" | jq -r '
+        .data.result[] |
+        "  " + .metric.phase + ": " + .value[1]
+    ' 2>/dev/null || echo "  Could not fetch pod phases"
+
+    # Container restarts (last hour, top 5)
+    echo ""
+    echo -e "${YELLOW}Recent restarts (last 1h):${NC}"
+
+    local restarts_result
+    restarts_result=$(prometheus_query "topk(5, increase(kube_pod_container_status_restarts_total{namespace=\"${ns}\"}[1h]) > 0)")
+
+    local has_restarts
+    has_restarts=$(echo "$restarts_result" | jq -r '.data.result | length' 2>/dev/null)
+
+    if [[ "${has_restarts:-0}" == "0" ]]; then
+        echo -e "  ${GREEN}No restarts${NC}"
+    else
+        echo "$restarts_result" | jq -r '
+            .data.result[] |
+            "  " + .metric.pod + " (" + .metric.container + "): " + (.value[1] | tonumber | floor | tostring) + " restarts"
+        ' 2>/dev/null
+    fi
+}
+
+# Custom PromQL query
+cmd_query() {
+    local query="${1:-}"
+
+    if [[ -z "$query" ]]; then
+        echo -e "${RED}Error: PromQL query required${NC}"
+        echo "Usage: monitor query '<promql>'"
+        echo "Example: monitor query 'up{namespace=\"app-prd\"}'"
+        exit 1
+    fi
+
+    local result
+    result=$(prometheus_query "$query") || return 1
+
+    local status
+    status=$(echo "$result" | jq -r '.status' 2>/dev/null)
+
+    if [[ "$status" != "success" ]]; then
+        echo -e "${RED}Query failed:${NC}"
+        echo "$result" | jq -r '.error // .message // .' 2>/dev/null
+        return 1
+    fi
+
+    local result_type
+    result_type=$(echo "$result" | jq -r '.data.resultType' 2>/dev/null)
+
+    case "$result_type" in
+        vector)
+            echo "$result" | jq -r '
+                .data.result[] |
+                (.metric | to_entries | map(.key + "=" + .value) | join(", ")) +
+                " => " + .value[1]
+            ' 2>/dev/null
+            ;;
+        matrix)
+            echo "$result" | jq -r '
+                .data.result[] |
+                (.metric | to_entries | map(.key + "=" + .value) | join(", ")) +
+                " => " + (.values | last | .[1])
+            ' 2>/dev/null
+            ;;
+        *)
+            echo "$result" | jq '.data' 2>/dev/null
+            ;;
+    esac
+}
+
+# Full status overview
+cmd_status() {
+    echo -e "${BLUE}=== Infrastructure Status ===${NC}"
+    echo -e "  $(date '+%Y-%m-%d %H:%M:%S')"
+    echo ""
+
+    # Pods summary per environment
+    echo -e "${BLUE}--- Environments ---${NC}"
+
+    for env in "${ENVIRONMENTS[@]}"; do
+        local ns=$(get_namespace "$env")
+
+        local desired_result
+        desired_result=$(prometheus_query "sum(kube_deployment_spec_replicas{namespace=\"${ns}\"})" 2>/dev/null)
+        local available_result
+        available_result=$(prometheus_query "sum(kube_deployment_status_replicas_available{namespace=\"${ns}\"})" 2>/dev/null)
+
+        local desired
+        desired=$(echo "$desired_result" | jq -r '.data.result[0].value[1] // "?"' 2>/dev/null)
+        local available
+        available=$(echo "$available_result" | jq -r '.data.result[0].value[1] // "?"' 2>/dev/null)
+
+        if [[ "$available" == "$desired" ]] && [[ "$desired" != "?" ]]; then
+            echo -e "  ${GREEN}OK${NC}  $env ($available/$desired pods)"
+        elif [[ "$desired" == "?" ]]; then
+            echo -e "  ${YELLOW}??${NC}  $env (no metrics)"
+        else
+            echo -e "  ${RED}!!${NC}  $env ($available/$desired pods)"
+        fi
+    done
+}
+
+# Main command dispatcher
+main() {
+    local cmd="${1:-help}"
+    shift || true
+
+    case "$cmd" in
+        status)
+            cmd_status
+            ;;
+        pods)
+            cmd_pods "$@"
+            ;;
+        query|promql)
+            cmd_query "$@"
+            ;;
+        envs|environments)
+            cmd_envs
+            ;;
+        test)
+            cmd_test
+            ;;
+        help|--help|-h)
+            cmd_help
+            ;;
+        *)
+            echo -e "${RED}Error: Unknown command '$cmd'${NC}"
+            echo "Run 'monitor help' for usage information"
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
