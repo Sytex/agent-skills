@@ -387,7 +387,7 @@ input_text() {
     local result
 
     if [[ -n "$GUM" ]]; then
-        result=$("$GUM" input --placeholder "$prompt" --value "$default")
+        result=$("$GUM" input --placeholder "$prompt" --value="$default")
     else
         if [[ -n "$default" ]]; then
             read -p "$prompt [$default]: " result
