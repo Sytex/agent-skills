@@ -11,7 +11,7 @@ OUT_DIR="$DESKTOP_DIR/bin"
 mkdir -p "$OUT_DIR"
 
 pyinstaller \
-  --onefile \
+  --onedir \
   --name agent-skills-server \
   --distpath "$OUT_DIR" \
   --workpath "/tmp/pyinstaller-build" \
@@ -23,4 +23,4 @@ pyinstaller \
   --clean \
   "$INSTALLER_DIR/web.py"
 
-echo "Built: $OUT_DIR/agent-skills-server"
+echo "Built: $OUT_DIR/agent-skills-server/"

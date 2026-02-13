@@ -43,7 +43,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(move |app| {
             let resource_path = app.path().resource_dir()?;
-            let server_bin = resource_path.join("agent-skills-server");
+            let server_bin = resource_path.join("agent-skills-server/agent-skills-server");
             let skills_dir = resource_path.join("skills");
 
             let child = Command::new(&server_bin)

@@ -25,7 +25,6 @@
       "icons/icon.png"
     ],
     "resources": {
-      "../bin/agent-skills-server": "agent-skills-server",
       "../../skills/": "skills/"
     },
     "macOS": {
