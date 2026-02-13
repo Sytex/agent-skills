@@ -29,7 +29,11 @@ The installer stores your provider configuration in `~/.agent-skills/config.json
 
 ## Installation
 
-### Using the Installer
+### Option 1: Desktop App (macOS)
+
+Download the `.dmg` from [GitHub Releases](https://github.com/pablanka/agent-skills/releases) and drag to Applications. The app bundles skills and auto-updates via GitHub Releases.
+
+### Option 2: CLI / Web UI
 
 **Terminal (interactive):**
 ```bash
@@ -50,7 +54,7 @@ On first run, you'll be prompted to select which providers to use. Skills are in
 ./installer/install.sh sentry test
 ```
 
-### Option 2: Tell your agent
+### Option 3: Tell your agent
 
 > "Install the Slite skill from this repo"
 
@@ -66,6 +70,9 @@ agent-skills/
 │   ├── templates/
 │   │   └── index.html  # Web UI
 │   └── bin/            # gum binary (auto-downloaded)
+├── desktop/            # macOS desktop app (Tauri v2)
+│   ├── src-tauri/      # Rust backend
+│   └── dist/           # Loading screen
 └── skills/
     ├── sentry/
     │   ├── skill.json  # Metadata + form fields

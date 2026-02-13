@@ -14,10 +14,14 @@ import urllib.parse
 import webbrowser
 from pathlib import Path
 
-SCRIPT_DIR = Path(__file__).parent.resolve()
-SKILLS_DIR = SCRIPT_DIR.parent / "skills"
-TEMPLATES_DIR = SCRIPT_DIR / "templates"
-PROVIDERS_FILE = SCRIPT_DIR / "providers.json"
+_FROZEN = getattr(sys, '_MEIPASS', None)
+SCRIPT_DIR = Path(_FROZEN) if _FROZEN else Path(__file__).parent.resolve()
+_installer_dir = Path(os.environ["INSTALLER_DIR"]) if "INSTALLER_DIR" in os.environ else SCRIPT_DIR
+SKILLS_DIR = Path(os.environ["SKILLS_DIR"]) if "SKILLS_DIR" in os.environ else SCRIPT_DIR.parent / "skills"
+TEMPLATES_DIR = _installer_dir / "templates"
+PROVIDERS_FILE = _installer_dir / "providers.json"
+
+BUNDLED_MODE = os.environ.get("BUNDLED_MODE") == "1"
 
 # Provider configuration
 CONFIG_DIR = Path.home() / ".agent-skills"
@@ -189,6 +193,9 @@ def remove_custom_provider(provider_id):
 
 def check_for_updates():
     """Check if there are updates available in the remote repository."""
+    if BUNDLED_MODE:
+        return {"has_updates": False}
+
     repo_dir = SCRIPT_DIR.parent
 
     fetch_result = subprocess.run(
@@ -212,6 +219,9 @@ def check_for_updates():
 
 def update_repo():
     """Pull latest changes from git repository."""
+    if BUNDLED_MODE:
+        return {"success": True, "message": "Updates managed by the app"}
+
     repo_dir = SCRIPT_DIR.parent
     result = subprocess.run(
         ["git", "pull"],
@@ -1183,7 +1193,9 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
 
 
 def main():
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
+    no_browser = "--no-browser" in sys.argv
+    args = [a for a in sys.argv[1:] if a != "--no-browser"]
+    port = int(args[0]) if args else 8765
 
     try:
         server = http.server.HTTPServer(("localhost", port), RequestHandler)
@@ -1194,7 +1206,8 @@ def main():
     url = f"http://localhost:{port}"
     print(f"Server running at {url}")
 
-    webbrowser.open(url)
+    if not no_browser:
+        webbrowser.open(url)
 
     server.serve_forever()
 
