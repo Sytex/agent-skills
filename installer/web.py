@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import urllib.parse
+import webbrowser
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -1184,8 +1185,16 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
 def main():
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
 
-    server = http.server.HTTPServer(("localhost", port), RequestHandler)
-    print(f"Server running at http://localhost:{port}")
+    try:
+        server = http.server.HTTPServer(("localhost", port), RequestHandler)
+    except OSError:
+        server = http.server.HTTPServer(("localhost", 0), RequestHandler)
+        port = server.server_address[1]
+
+    url = f"http://localhost:{port}"
+    print(f"Server running at {url}")
+
+    webbrowser.open(url)
 
     server.serve_forever()
 

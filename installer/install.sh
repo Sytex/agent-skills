@@ -42,16 +42,9 @@ case "$1" in
         fi
 
         PORT="${2:-8765}"
-        echo "Starting web installer on http://localhost:$PORT"
+        echo "Starting web installer..."
         echo "Press Ctrl+C to stop"
         echo ""
-
-        # Try to open browser
-        if command -v open &> /dev/null; then
-            (sleep 1 && open "http://localhost:$PORT") &
-        elif command -v xdg-open &> /dev/null; then
-            (sleep 1 && xdg-open "http://localhost:$PORT") &
-        fi
 
         python3 "$SCRIPT_DIR/web.py" "$PORT"
         ;;
