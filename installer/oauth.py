@@ -34,11 +34,23 @@ def find_free_port():
 
 def open_browser(url):
     """Open URL in default browser."""
+    opened = False
     if sys.platform == "darwin":
-        subprocess.run(["open", url], check=False)
+        try:
+            subprocess.run(["open", url], check=False)
+            opened = True
+        except FileNotFoundError:
+            pass
     elif sys.platform == "linux":
-        subprocess.run(["xdg-open", url], check=False)
-    else:
+        for cmd in ["xdg-open", "gnome-open", "kde-open", "sensible-browser"]:
+            try:
+                subprocess.run([cmd, url], check=False)
+                opened = True
+                break
+            except FileNotFoundError:
+                continue
+
+    if not opened:
         import webbrowser
         webbrowser.open(url)
 
