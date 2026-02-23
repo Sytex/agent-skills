@@ -12,6 +12,7 @@ import socketserver
 import subprocess
 import sys
 import threading
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -176,8 +177,18 @@ def exchange_code_for_token(token_url, code, client_id, client_secret, redirect_
         method="POST"
     )
 
-    with urllib.request.urlopen(req, timeout=30) as response:
-        return json.loads(response.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            return json.loads(response.read().decode())
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read().decode()
+            print(f"Token exchange HTTP {e.code}: {body}", file=sys.stderr)
+            return json.loads(body)
+        except Exception:
+            return {"error": f"HTTP {e.code}: {e.reason}"}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 def run_oauth_flow(oauth_config, client_id, client_secret):
