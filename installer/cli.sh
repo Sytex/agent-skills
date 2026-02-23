@@ -1123,16 +1123,32 @@ configure_skill() {
             if tokens_json=$(run_skill_oauth "$skill" "$client_id_val" "$client_secret_val"); then
                 local skill_upper
                 skill_upper=$(echo "$skill" | tr '[:lower:]-' '[:upper:]_')
-                local token_mapping
-                token_mapping=$(python3 -c "import json; print(json.dumps(json.load(open('$skill_json')).get('oauth',{}).get('token_mapping',{'token':'ACCESS_TOKEN'})))")
+                TOKENS_JSON="$tokens_json" SKILL_JSON="$skill_json" SKILL_UPPER="$skill_upper" ENV_FILE="$central_dir/.env" python3 -c "
+import json, os
 
-                while IFS='=' read -r token_key env_suffix; do
-                    local token_value
-                    token_value=$(echo "$tokens_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('$token_key', ''))" 2>/dev/null || true)
-                    if [[ -n "$token_value" ]]; then
-                        echo "${skill_upper}_${env_suffix}=\"$token_value\"" >> "$central_dir/.env"
-                    fi
-                done < <(echo "$token_mapping" | python3 -c "import json,sys; [print(f'{k}={v}') for k,v in json.load(sys.stdin).items()]")
+tokens = json.loads(os.environ['TOKENS_JSON'])
+with open(os.environ['SKILL_JSON']) as f:
+    skill_data = json.load(f)
+
+token_mapping = skill_data.get('oauth', {}).get('token_mapping', {'access_token': 'ACCESS_TOKEN'})
+skill_upper = os.environ['SKILL_UPPER']
+env_file = os.environ['ENV_FILE']
+
+lines = []
+# Save mapped tokens
+for token_key, env_suffix in token_mapping.items():
+    if token_key in tokens and tokens[token_key]:
+        lines.append(f'{skill_upper}_{env_suffix}=\"{tokens[token_key]}\"')
+
+# Save any extra fields not in the mapping (e.g. if provider uses different key name)
+for key, value in tokens.items():
+    if key not in token_mapping and value and isinstance(value, (str, int)):
+        lines.append(f'{skill_upper}_{key.upper()}=\"{value}\"')
+
+if lines:
+    with open(env_file, 'a') as f:
+        f.write('\n'.join(lines) + '\n')
+"
 
                 style green "OAuth authorization complete"
             else
