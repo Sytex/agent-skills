@@ -160,8 +160,8 @@ def exchange_code_for_token(token_url, code, client_id, client_secret, redirect_
     """Exchange authorization code for access token."""
     data = {
         "code": code,
-        "client_id": client_id.strip(),
-        "client_secret": client_secret.strip(),
+        "client_id": client_id,
+        "client_secret": client_secret,
         "redirect_uri": redirect_uri,
     }
     if include_grant_type:

@@ -397,7 +397,7 @@ input_text() {
         fi
     fi
 
-    echo "$result"
+    echo "$result" | xargs
 }
 
 # Input password
