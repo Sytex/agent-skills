@@ -156,15 +156,16 @@ class OAuthServer(socketserver.TCPServer):
     expected_state = None
 
 
-def exchange_code_for_token(token_url, code, client_id, client_secret, redirect_uri, extra_params=None):
+def exchange_code_for_token(token_url, code, client_id, client_secret, redirect_uri, extra_params=None, include_grant_type=True):
     """Exchange authorization code for access token."""
     data = {
-        "grant_type": "authorization_code",
         "code": code,
-        "client_id": client_id,
-        "client_secret": client_secret,
+        "client_id": client_id.strip(),
+        "client_secret": client_secret.strip(),
         "redirect_uri": redirect_uri,
     }
+    if include_grant_type:
+        data["grant_type"] = "authorization_code"
     if extra_params:
         data.update(extra_params)
 
@@ -208,6 +209,7 @@ def run_oauth_flow(oauth_config, client_id, client_secret):
     scopes = oauth_config.get("scopes", [])
     extra_auth_params = oauth_config.get("extra_auth_params", {})
     extra_token_params = oauth_config.get("extra_token_params", {})
+    include_grant_type = not oauth_config.get("no_grant_type", False)
 
     if not auth_url or not token_url:
         return {"error": "Missing auth_url or token_url in OAuth config"}
@@ -258,7 +260,8 @@ def run_oauth_flow(oauth_config, client_id, client_secret):
         client_id,
         client_secret,
         redirect_uri,
-        extra_token_params
+        extra_token_params,
+        include_grant_type
     )
 
     return token_response

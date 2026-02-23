@@ -26,6 +26,7 @@
   "oauth": {
     "auth_url": "https://app.intercom.com/oauth",
     "token_url": "https://api.intercom.io/auth/eagle/token",
+    "no_grant_type": true,
     "token_mapping": {
       "access_token": "ACCESS_TOKEN"
     }
