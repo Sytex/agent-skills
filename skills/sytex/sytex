@@ -2,7 +2,8 @@
 # Sytex API CLI
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/.env"
+SKILL_NAME="$(basename "$SCRIPT_DIR")"
+CONFIG_FILE="$HOME/.agent-skills/$SKILL_NAME/.env"
 source "$CONFIG_FILE" 2>/dev/null
 
 if [[ -z "$SYTEX_TOKEN" ]]; then

@@ -3,7 +3,8 @@
 # Shared app credentials, separate tokens per account
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/.env"
+SKILL_NAME="$(basename "$SCRIPT_DIR")"
+CONFIG_FILE="$HOME/.agent-skills/$SKILL_NAME/.env"
 
 # Google OAuth2 endpoints
 AUTH_URL="https://accounts.google.com/o/oauth2/v2/auth"

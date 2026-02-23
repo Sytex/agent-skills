@@ -2,7 +2,8 @@
 # Gmail IMAP operations - Multi-account support
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/.env"
+SKILL_NAME="$(basename "$(dirname "$SCRIPT_DIR")")"
+CONFIG_FILE="$HOME/.agent-skills/$SKILL_NAME/.env"
 
 # Colors
 RED='\033[0;31m'
