@@ -27,7 +27,7 @@
     "auth_url": "https://app.intercom.com/oauth",
     "token_url": "https://api.intercom.io/auth/eagle/token",
     "token_mapping": {
-      "access_token": "ACCESS_TOKEN"
+      "token": "ACCESS_TOKEN"
     }
   },
   "test_command": "status",

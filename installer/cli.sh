@@ -1109,6 +1109,40 @@ configure_skill() {
     echo -e "$env_content" > "$central_dir/.env"
     chmod 600 "$central_dir/.env"
 
+    # Run OAuth flow if skill uses top-level OAuth
+    local has_oauth
+    has_oauth=$(python3 -c "import json; print('true' if json.load(open('$skill_json')).get('oauth') else 'false')" 2>/dev/null || echo "false")
+
+    if [[ "$has_oauth" == "true" ]]; then
+        local client_id_val client_secret_val
+        client_id_val=$(grep "CLIENT_ID=" "$central_dir/.env" | head -1 | cut -d= -f2- | tr -d '"')
+        client_secret_val=$(grep "CLIENT_SECRET=" "$central_dir/.env" | head -1 | cut -d= -f2- | tr -d '"')
+
+        if [[ -n "$client_id_val" && -n "$client_secret_val" ]]; then
+            local tokens_json
+            if tokens_json=$(run_skill_oauth "$skill" "$client_id_val" "$client_secret_val"); then
+                local skill_upper
+                skill_upper=$(echo "$skill" | tr '[:lower:]-' '[:upper:]_')
+                local token_mapping
+                token_mapping=$(python3 -c "import json; print(json.dumps(json.load(open('$skill_json')).get('oauth',{}).get('token_mapping',{'token':'ACCESS_TOKEN'})))")
+
+                while IFS='=' read -r token_key env_suffix; do
+                    local token_value
+                    token_value=$(echo "$tokens_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('$token_key', ''))" 2>/dev/null || true)
+                    if [[ -n "$token_value" ]]; then
+                        echo "${skill_upper}_${env_suffix}=\"$token_value\"" >> "$central_dir/.env"
+                    fi
+                done < <(echo "$token_mapping" | python3 -c "import json,sys; [print(f'{k}={v}') for k,v in json.load(sys.stdin).items()]")
+
+                style green "OAuth authorization complete"
+            else
+                return 1
+            fi
+        else
+            style yellow "Warning: Could not find client credentials for OAuth"
+        fi
+    fi
+
     # Sync to all installed providers
     while IFS= read -r provider; do
         [[ -z "$provider" ]] && continue
@@ -1120,6 +1154,47 @@ configure_skill() {
     done < <(get_enabled_providers)
 
     style green "Configuration saved"
+}
+
+# Run OAuth flow for top-level skill OAuth
+run_skill_oauth() {
+    local skill="$1"
+    local client_id="$2"
+    local client_secret="$3"
+
+    local skill_json="$SKILLS_DIR/$skill/skill.json"
+    local oauth_json
+    oauth_json=$(python3 -c "import json; print(json.dumps(json.load(open('$skill_json')).get('oauth', {})))")
+
+    if [[ "$oauth_json" == "{}" ]]; then
+        style red "Skill does not support OAuth" >&2
+        return 1
+    fi
+
+    echo "" >&2
+    style cyan "Starting OAuth authorization..." >&2
+    echo "" >&2
+
+    local tokens_json
+    tokens_json=$(OAUTH_JSON="$oauth_json" OAUTH_CLIENT_ID="$client_id" OAUTH_CLIENT_SECRET="$client_secret" OAUTH_SCRIPT_DIR="$SCRIPT_DIR" python3 -c "
+import json, sys, os
+sys.path.insert(0, os.environ['OAUTH_SCRIPT_DIR'])
+from oauth import run_oauth_flow
+
+oauth_config = json.loads(os.environ['OAUTH_JSON'])
+result = run_oauth_flow(oauth_config, os.environ['OAUTH_CLIENT_ID'], os.environ['OAUTH_CLIENT_SECRET'])
+print(json.dumps(result))
+" 2>&1)
+
+    if echo "$tokens_json" | python3 -c "import json,sys; data=json.load(sys.stdin); sys.exit(0 if 'error' not in data else 1)" 2>/dev/null; then
+        echo "$tokens_json"
+        return 0
+    else
+        local error
+        error=$(echo "$tokens_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error', 'Unknown error'))" 2>/dev/null || echo "$tokens_json")
+        style red "Authorization failed: $error" >&2
+        return 1
+    fi
 }
 
 # Run OAuth flow for an account and save tokens
