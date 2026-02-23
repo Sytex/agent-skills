@@ -85,7 +85,9 @@ class OAuthCallbackHandler(http.server.BaseHTTPRequestHandler):
                 self.server.oauth_error = "No authorization code received"
                 self.send_error_page(self.server.oauth_error)
 
-            threading.Thread(target=self.server.shutdown).start()
+            t = threading.Thread(target=self.server.shutdown)
+            t.daemon = True
+            t.start()
         else:
             self.send_error(404)
 
@@ -244,6 +246,7 @@ def run_oauth_flow(oauth_config, client_id, client_secret):
     # Wait for callback (with timeout)
     server.timeout = 300  # 5 minutes
     server.handle_request()
+    server.server_close()
 
     if server.oauth_error:
         return {"error": server.oauth_error}
