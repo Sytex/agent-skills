@@ -1,80 +1,136 @@
+---
+name: intercom
+description: Manage Intercom conversations, contacts, and tickets. Use when user mentions Intercom, conversations, soporte, chats, support tickets, or wants to investigate a user issue.
+allowed-tools:
+  - Bash(~/.claude/skills/intercom/*:*)
+---
+
 # Intercom
 
-Manage contacts, conversations, and tickets in Intercom.
+Access and manage Intercom conversations, contacts, and tickets.
+
+## Support Investigation Workflow
+
+When asked to investigate an issue or help with a support conversation:
+
+### 1. Find conversations (flexible entry point)
+
+```bash
+# Latest conversations
+intercom conversations
+
+# By contact email
+intercom conversations --email pepe@empresa.com
+
+# By contact name
+intercom conversations --name "Pepe García"
+
+# Only open conversations
+intercom conversations --open --limit 10
+
+# Search by content/topic
+intercom conversations-search "error de sincronización"
+```
+
+### 2. Read the full conversation
+
+```bash
+intercom conversation <id>
+```
+
+Returns all messages, notes, and metadata in plain text.
+
+### 3. Cross-reference with Sytex (if relevant)
+
+Use the `sytex` or `sytex-reports` skill to understand the technical context:
+- Look up the org, tasks, or sites related to the user's issue
+- Check recent task statuses, errors, or workflow states
+
+### 4. Leave an internal note with suggested response
+
+```bash
+intercom conversation-note <id> "Suggested response: ..."
+```
+
+**Note vs Reply:**
+- `conversation-note` → internal note, **only visible to the support team**
+- `conversation-reply` → message sent to the user
+
+---
 
 ## Commands
 
-### Authentication
-- `intercom status` - Check authentication status
-- `intercom me` - Get current admin info
+### Conversations
+
+| Command | Description |
+|---------|-------------|
+| `conversations` | List recent conversations |
+| `conversations --email <email>` | Conversations for a contact by email |
+| `conversations --name <name>` | Conversations for a contact by name |
+| `conversations --contact <id>` | Conversations for a contact by ID |
+| `conversations --open\|--closed` | Filter by status |
+| `conversations --limit <n>` | Max results (default: 20) |
+| `conversation <id>` | Full conversation with all messages |
+| `conversations-search <query>` | Search conversations by content |
+| `conversation-note <id> <text>` | Add internal note (team only) |
+| `conversation-reply <id> <text>` | Reply to user (visible to user) |
+| `conversation-close <id>` | Close conversation |
+| `conversation-open <id>` | Reopen conversation |
 
 ### Contacts
-- `intercom contacts` - List contacts
-- `intercom contacts --email user@example.com` - Search by email
-- `intercom contact <id>` - Get contact details
-- `intercom contact-create <email>` - Create contact
-  - `--name <name>` - Contact name
-  - `--phone <phone>` - Phone number
-  - `--role <user|lead>` - Contact role
-- `intercom contact-update <id> <field> <value>` - Update contact
-- `intercom contact-delete <id>` - Delete contact
 
-### Conversations
-- `intercom conversations` - List all conversations
-- `intercom conversations --open` - List open conversations
-- `intercom conversations --closed` - List closed conversations
-- `intercom conversation <id>` - Get conversation details
-- `intercom conversation-reply <id> "<message>"` - Reply to conversation
-- `intercom conversation-close <id>` - Close conversation
-- `intercom conversation-open <id>` - Reopen conversation
+| Command | Description |
+|---------|-------------|
+| `contacts` | List contacts |
+| `contacts --email <email>` | Search by email |
+| `contact <id>` | Get contact details |
+| `search <query>` | Search contacts by name or email |
+| `contact-create <email>` | Create contact |
+| `contact-update <id> <field> <value>` | Update contact field |
+| `contact-delete <id>` | Delete contact |
 
 ### Companies
-- `intercom companies` - List companies
-- `intercom company <id>` - Get company details
-- `intercom company-create <name>` - Create company
-  - `--id <company_id>` - Custom company ID
+
+| Command | Description |
+|---------|-------------|
+| `companies` | List companies |
+| `company <id>` | Get company details |
+| `company-create <name>` | Create company |
 
 ### Tickets
-- `intercom tickets` - List tickets
-- `intercom ticket <id>` - Get ticket details
-- `intercom ticket-types` - List available ticket types
-- `intercom ticket-create <type_id> <title>` - Create ticket
-  - `--contact <id>` - Link to contact
-  - `--description <text>` - Ticket description
-- `intercom ticket-update <id>` - Update ticket
-  - `--close` - Close ticket
-  - `--open` - Reopen ticket
-  - `--state <state_id>` - Set ticket state
 
-### Admins
-- `intercom admins` - List workspace admins
-- `intercom admin <id>` - Get admin details
+| Command | Description |
+|---------|-------------|
+| `tickets` | List tickets |
+| `ticket <id>` | Get ticket details |
+| `ticket-types` | List available ticket types |
+| `ticket-create <type_id> <title>` | Create ticket |
+| `ticket-update <id>` | Update ticket (`--close`, `--open`, `--state <id>`) |
 
-### Tags
-- `intercom tags` - List tags
-- `intercom tag-contact <contact_id> <tag_id>` - Tag a contact
+### Admins & Tags
 
-### Search
-- `intercom search <query>` - Search contacts by name or email
+| Command | Description |
+|---------|-------------|
+| `admins` | List workspace admins |
+| `admin <id>` | Get admin details |
+| `tags` | List tags |
+| `tag-contact <contact_id> <tag_id>` | Tag a contact |
+
+---
 
 ## Examples
 
 ```bash
-# Check connection status
-intercom status
+# Find conversations for a user and read the latest one
+intercom conversations --email pepe@empresa.com
+intercom conversation 12345
 
-# List open conversations
-intercom conversations --open
+# Search for similar cases
+intercom conversations-search "formulario no carga"
 
-# Reply to a conversation
-intercom conversation-reply 12345 "Thanks for reaching out!"
+# Leave internal note with suggested response
+intercom conversation-note 12345 "Sugerencia: el problema es X. Responder con Y."
 
-# Create a new contact
-intercom contact-create user@example.com --name "John Doe" --role user
-
-# Search for contacts
-intercom search "john"
-
-# Create a ticket
-intercom ticket-create 1 "Bug report" --description "Found an issue"
+# Reply to the user (only when ready)
+intercom conversation-reply 12345 "Hola! Investigamos el problema y..."
 ```

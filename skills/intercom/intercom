@@ -175,24 +175,70 @@ cmd_contact_delete() {
 
 # === CONVERSATIONS ===
 
+# Resolve contact ID from email or name
+resolve_contact_id() {
+    local email="$1"
+    local name="$2"
+    local result contact_id
+
+    if [[ -n "$email" ]]; then
+        result=$(api_post "/contacts/search" "{\"query\":{\"field\":\"email\",\"operator\":\"=\",\"value\":\"$email\"}}")
+        contact_id=$(echo "$result" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',[{}])[0].get('id',''))" 2>/dev/null)
+    elif [[ -n "$name" ]]; then
+        result=$(api_post "/contacts/search" "{\"query\":{\"field\":\"name\",\"operator\":\"~\",\"value\":\"$name\"}}")
+        contact_id=$(echo "$result" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('data',[{}])[0].get('id',''))" 2>/dev/null)
+    fi
+
+    echo "$contact_id"
+}
+
 cmd_conversations() {
-    local params="?display_as=plaintext"
+    local email="" name="" contact_id="" limit="20"
+    local open_filter=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --open) params="$params&open=true"; shift ;;
-            --closed) params="$params&open=false"; shift ;;
+            --open)    open_filter="open"; shift ;;
+            --closed)  open_filter="closed"; shift ;;
+            --email)   email="$2"; shift 2 ;;
+            --name)    name="$2"; shift 2 ;;
+            --contact) contact_id="$2"; shift 2 ;;
+            --limit)   limit="$2"; shift 2 ;;
             *) shift ;;
         esac
     done
 
-    api_get "/conversations$params"
+    # Resolve contact from email or name if provided
+    if [[ -z "$contact_id" && ( -n "$email" || -n "$name" ) ]]; then
+        contact_id=$(resolve_contact_id "$email" "$name")
+        [[ -z "$contact_id" ]] && echo "Error: contact not found" && exit 1
+    fi
+
+    if [[ -n "$contact_id" ]]; then
+        api_get "/contacts/$contact_id/conversations"
+    else
+        # Build search query for general listing
+        local filters='[]'
+        [[ "$open_filter" == "open" ]]   && filters='[{"field":"open","operator":"=","value":true}]'
+        [[ "$open_filter" == "closed" ]] && filters='[{"field":"open","operator":"=","value":false}]'
+        api_post "/conversations/search" \
+            "{\"query\":{\"operator\":\"AND\",\"value\":$filters},\"pagination\":{\"per_page\":$limit},\"sort\":{\"field\":\"updated_at\",\"order\":\"desc\"}}"
+    fi
 }
 
 cmd_conversation() {
     local id="$1"
     [[ -z "$id" ]] && echo "Error: conversation ID required" && exit 1
     api_get "/conversations/$id?display_as=plaintext"
+}
+
+cmd_conversations_search() {
+    local query="$1"
+    local limit="${2:-20}"
+    [[ -z "$query" ]] && echo "Error: search query required" && exit 1
+
+    api_post "/conversations/search" \
+        "{\"query\":{\"operator\":\"OR\",\"value\":[{\"field\":\"source.body\",\"operator\":\"~\",\"value\":\"$query\"},{\"field\":\"statistics.first_response_time\",\"operator\":\">\",\"value\":0}]},\"pagination\":{\"per_page\":$limit},\"sort\":{\"field\":\"updated_at\",\"order\":\"desc\"}}"
 }
 
 cmd_conversation_reply() {
@@ -202,36 +248,38 @@ cmd_conversation_reply() {
     [[ -z "$id" ]] && echo "Error: conversation ID required" && exit 1
     [[ -z "$message" ]] && echo "Error: message required" && exit 1
 
-    # Get admin ID first
-    local me_response
-    me_response=$(api_get "/me")
     local admin_id
-    admin_id=$(echo "$me_response" | json_value "id")
+    admin_id=$(api_get "/me" | json_value "id")
 
     api_post "/conversations/$id/reply" "{\"message_type\":\"comment\",\"type\":\"admin\",\"admin_id\":\"$admin_id\",\"body\":\"$message\"}"
+}
+
+cmd_conversation_note() {
+    local id="$1"
+    local message="$2"
+
+    [[ -z "$id" ]] && echo "Error: conversation ID required" && exit 1
+    [[ -z "$message" ]] && echo "Error: note text required" && exit 1
+
+    local admin_id
+    admin_id=$(api_get "/me" | json_value "id")
+
+    api_post "/conversations/$id/reply" "{\"message_type\":\"note\",\"type\":\"admin\",\"admin_id\":\"$admin_id\",\"body\":\"$message\"}"
 }
 
 cmd_conversation_close() {
     local id="$1"
     [[ -z "$id" ]] && echo "Error: conversation ID required" && exit 1
-
-    local me_response
-    me_response=$(api_get "/me")
     local admin_id
-    admin_id=$(echo "$me_response" | json_value "id")
-
+    admin_id=$(api_get "/me" | json_value "id")
     api_post "/conversations/$id/parts" "{\"message_type\":\"close\",\"type\":\"admin\",\"admin_id\":\"$admin_id\"}"
 }
 
 cmd_conversation_open() {
     local id="$1"
     [[ -z "$id" ]] && echo "Error: conversation ID required" && exit 1
-
-    local me_response
-    me_response=$(api_get "/me")
     local admin_id
-    admin_id=$(echo "$me_response" | json_value "id")
-
+    admin_id=$(api_get "/me" | json_value "id")
     api_post "/conversations/$id/parts" "{\"message_type\":\"open\",\"type\":\"admin\",\"admin_id\":\"$admin_id\"}"
 }
 
@@ -402,9 +450,16 @@ show_help() {
     echo "  contact-delete <id>                 Delete contact"
     echo ""
     echo "CONVERSATIONS:"
-    echo "  conversations [--open|--closed]     List conversations"
-    echo "  conversation <id>                   Get conversation details"
-    echo "  conversation-reply <id> <message>   Reply to conversation"
+    echo "  conversations [flags]               List recent conversations"
+    echo "    --email <email>                   Filter by contact email"
+    echo "    --name <name>                     Filter by contact name"
+    echo "    --contact <id>                    Filter by contact ID"
+    echo "    --open|--closed                   Filter by status"
+    echo "    --limit <n>                       Max results (default: 20)"
+    echo "  conversation <id>                   Get full conversation with all messages"
+    echo "  conversations-search <query>        Search conversations by content"
+    echo "  conversation-note <id> <text>       Add internal note (only visible to team)"
+    echo "  conversation-reply <id> <message>   Reply to conversation (visible to user)"
     echo "  conversation-close <id>             Close conversation"
     echo "  conversation-open <id>              Reopen conversation"
     echo ""
@@ -449,6 +504,8 @@ case "$1" in
     contact-delete) cmd_contact_delete "$2" ;;
     conversations) shift; cmd_conversations "$@" ;;
     conversation) cmd_conversation "$2" ;;
+    conversations-search) cmd_conversations_search "$2" "$3" ;;
+    conversation-note) cmd_conversation_note "$2" "$3" ;;
     conversation-reply) cmd_conversation_reply "$2" "$3" ;;
     conversation-close) cmd_conversation_close "$2" ;;
     conversation-open) cmd_conversation_open "$2" ;;
