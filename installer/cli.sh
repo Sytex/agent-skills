@@ -1184,7 +1184,7 @@ from oauth import run_oauth_flow
 oauth_config = json.loads(os.environ['OAUTH_JSON'])
 result = run_oauth_flow(oauth_config, os.environ['OAUTH_CLIENT_ID'], os.environ['OAUTH_CLIENT_SECRET'])
 print(json.dumps(result))
-" 2>&1)
+")
 
     if echo "$tokens_json" | python3 -c "import json,sys; data=json.load(sys.stdin); sys.exit(0 if 'error' not in data else 1)" 2>/dev/null; then
         echo "$tokens_json"

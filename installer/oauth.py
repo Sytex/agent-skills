@@ -222,9 +222,9 @@ def run_oauth_flow(oauth_config, client_id, client_secret):
     server = OAuthServer(("localhost", port), OAuthCallbackHandler)
     server.expected_state = state
 
-    print(f"Opening browser for authorization...")
-    print(f"If the browser doesn't open, visit: {full_auth_url}")
-    print()
+    print(f"Opening browser for authorization...", file=sys.stderr)
+    print(f"If the browser doesn't open, visit: {full_auth_url}", file=sys.stderr)
+    print(file=sys.stderr)
 
     open_browser(full_auth_url)
 
@@ -239,7 +239,7 @@ def run_oauth_flow(oauth_config, client_id, client_secret):
         return {"error": "No authorization code received"}
 
     # Exchange code for token
-    print("Exchanging code for access token...")
+    print("Exchanging code for access token...", file=sys.stderr)
 
     token_response = exchange_code_for_token(
         token_url,
