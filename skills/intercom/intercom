@@ -251,7 +251,7 @@ cmd_conversation_reply() {
     local admin_id
     admin_id=$(api_get "/me" | json_value "id")
 
-    api_post "/conversations/$id/reply" "{\"message_type\":\"comment\",\"type\":\"admin\",\"admin_id\":\"$admin_id\",\"body\":\"$message\"}"
+    api_post "/conversations/$id/reply" "{\"message_type\":\"note\",\"type\":\"admin\",\"admin_id\":\"$admin_id\",\"body\":\"$message\"}"
 }
 
 cmd_conversation_note() {
