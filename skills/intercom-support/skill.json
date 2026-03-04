@@ -1,0 +1,8 @@
+{
+  "name": "intercom-support",
+  "title": "Intercom Support Analysis",
+  "description": "Support conversation analysis workflow. Generates internal diagnosis and user-facing response suggestions for Intercom conversations.",
+  "version": "1.0.0",
+  "files": ["SKILL.md"],
+  "fields": []
+}
