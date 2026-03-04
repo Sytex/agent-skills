@@ -7,7 +7,7 @@ description: Analyze Intercom support conversations and generate structured note
 
 Workflow for analyzing support conversations and generating structured notes.
 
-**IMPORTANT:** Everything you write MUST be in Spanish.
+**IMPORTANT:** Everything you write MUST be in Spanish (both the internal analysis and the suggested response). Even if the user writes in Portuguese or any other language, ALWAYS respond in Spanish. The support team uses a live translator — we write in Spanish and the user reads in their language automatically.
 
 ---
 
