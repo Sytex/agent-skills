@@ -15,6 +15,7 @@ Skills for AI coding agents by the Sytex team.
 | [sytex](./skills/sytex)                     | Interact with Sytex production API                          |
 | [sytex-excel-form-template-workflow](./skills/sytex-excel-form-template-workflow) | Work with Sytex Excel form templates safely                |
 | [database](./skills/database)               | Read-only MySQL/MariaDB client for querying databases       |
+| [wizard](./skills/wizard)                   | Generate Sytex wizard JSON configurations                   |
 
 ## Supported Providers
 

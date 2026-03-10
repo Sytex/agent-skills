@@ -1,0 +1,9 @@
+{
+  "name": "wizard",
+  "title": "Sytex Wizards",
+  "description": "Generate wizard JSON configurations for Sytex. Creates step-by-step forms that automate object creation (sites, tasks, network elements, WBS, etc.).",
+  "version": "1.0.0",
+  "setup_instructions": "No configuration needed. This skill provides knowledge for generating Sytex wizard JSON configurations.",
+  "fields": [],
+  "files": ["SKILL.md", "README.md"]
+}
