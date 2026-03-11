@@ -1,6 +1,6 @@
 ---
 name: sytex-excel-form-template-workflow
-description: Guía para trabajar con plantillas Excel (.xlsx) de formularios: análisis, diseño, mapeo de referencias, validación contra JSON real, manejo de imágenes y mantenimiento sin romper estructura.
+description: "Guía para trabajar con plantillas Excel (.xlsx) de formularios: análisis, diseño, mapeo de referencias, validación contra JSON real, manejo de imágenes y mantenimiento sin romper estructura."
 ---
 
 # Excel Form Template Workflow
@@ -22,8 +22,20 @@ description: Guía para trabajar con plantillas Excel (.xlsx) de formularios: an
 
 ## Entradas esperadas
 - Uno o más `.xlsx` (base y/o versión objetivo).
-- JSON de formulario real (normalmente con `items` y `kind == "entry"`).
+- JSON de formulario real **o** JSON de template.
 - Opcional: reglas de negocio para mapeos ambiguos.
+
+### Tipos de JSON soportados
+Este workflow debe funcionar con dos estructuras distintas:
+
+1. JSON de form concreto (respuesta real):
+- suele tener `items` con objetos de pregunta (`kind == "entry"`).
+- las keys válidas se derivan del `index` de cada `entry`.
+
+2. JSON de template (definición del formulario):
+- suele tener `entries` y nodos anidados `items`.
+- los nodos de pregunta reales vienen con `_class == "templateentry"`.
+- las keys válidas se derivan del `index` de cada `templateentry`.
 
 ## Modelo mental del `.xlsx` (OpenXML)
 `.xlsx` es un ZIP con XML internos.
@@ -63,10 +75,17 @@ Nota:
 - Pueden venir URL-encoded (`%7B%7B ... %7D%7D`).
 
 ## Cómo derivar claves válidas desde JSON
-1. Tomar `items` con `kind == "entry"`.
-2. Usar `index` como clave lógica.
-3. Excluir auxiliares (ej. `*-repeat-end`).
-4. Normalizar `index`: reemplazar `.` por `_`.
+1. Detectar tipo de JSON:
+- si existe `entries` + estructura anidada con `_class`, tratarlo como **template**.
+- si existe `items` con `kind`, tratarlo como **form concreto**.
+
+2. Extraer entradas válidas según tipo:
+- form concreto: tomar `items` con `kind == "entry"`.
+- template: recorrer recursivamente y tomar objetos con `_class == "templateentry"` y `index`.
+
+3. Usar `index` como clave lógica.
+4. Excluir auxiliares no renderizables (ej. `*-repeat-end`).
+5. Normalizar `index`: reemplazar `.` por `_` (conservar letras de repetibles: `A`, `B`, `C`, etc.).
 
 Ejemplo:
 - `2.1A.2.1.3.1` -> `2_1A_2_1_3_1`
@@ -105,7 +124,9 @@ Usar este pipeline como estándar en cualquier template:
 - incluir contexto por referencia: `file`, `sheet/drawing`, `rId` (si aplica), `row/col` (si aplica).
 
 2. Construir catálogo válido desde JSON:
-- tomar `items` con `kind == "entry"`.
+- detectar tipo (`form concreto` vs `template`):
+- form concreto: `items` con `kind == "entry"`.
+- template: recorrido recursivo de objetos con `_class == "templateentry"` e `index`.
 - `valid_key = index.replace(".", "_")`.
 - excluir auxiliares (`repeat-end` y equivalentes no renderizables).
 
@@ -187,6 +208,14 @@ Preguntar antes de aplicar si:
 ```bash
 # Listar contenido interno del xlsx
 unzip -l archivo.xlsx
+
+# Derivar keys válidas desde JSON de form concreto
+jq -r '.items[]? | select(.kind=="entry") | .index' form.json \
+  | sed 's/\./_/g' | sort -u
+
+# Derivar keys válidas desde JSON de template
+jq -r '.. | objects | select(._class?=="templateentry" and .index?) | .index' template.json \
+  | sed 's/\./_/g' | sort -u
 
 # Extraer placeholders de texto
 rg -o -N "\{\{[^}]+\}\}" /tmp/xlsx/xl -g '*.xml'

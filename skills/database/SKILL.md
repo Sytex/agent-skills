@@ -1,3 +1,8 @@
+---
+name: database
+description: Read-only access to configured databases for schema inspection and SQL querying across environments.
+---
+
 # Database Skill
 
 You now have **read-only** access to multiple databases through the `database` command. This skill supports connecting to production, staging, local, or any other configured database.
