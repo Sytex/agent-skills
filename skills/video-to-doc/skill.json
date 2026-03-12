@@ -1,0 +1,35 @@
+{
+  "name": "video-to-doc",
+  "title": "Sytex Video Docs",
+  "description": "Generate Sytex process documentation from screen recordings with cropped screenshots, Markdown output, and DOCX export using a corporate template.",
+  "version": "1.0.0",
+  "setup_instructions": "Requires Python 3 and Pandoc available in PATH.",
+  "dependencies": [
+    {
+      "name": "python3",
+      "check": "python3 --version",
+      "install": {
+        "darwin": "brew install python3",
+        "linux": "sudo apt-get install -y python3 || sudo yum install -y python3",
+        "windows": "winget install Python.Python.3"
+      }
+    },
+    {
+      "name": "pandoc",
+      "check": "pandoc --version",
+      "install": {
+        "darwin": "brew install pandoc",
+        "linux": "sudo apt-get install -y pandoc || sudo yum install -y pandoc",
+        "windows": "winget install --id JohnMacFarlane.Pandoc -e"
+      }
+    }
+  ],
+  "fields": [],
+  "files": [
+    "SKILL.md",
+    "scripts/crop_useful_zone.py:crop_useful_zone.py",
+    "scripts/export_docx_from_template.py:export_docx_from_template.py",
+    "scripts/retarget_doc_images_to_cropped.py:retarget_doc_images_to_cropped.py",
+    "assets/Encabezado_membrete Hoja Sytex - 2025.docx:Encabezado_membrete Hoja Sytex - 2025.docx"
+  ]
+}

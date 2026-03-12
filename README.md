@@ -14,6 +14,7 @@ Skills for AI coding agents by the Sytex team.
 | [slite](./skills/slite)                     | Connect with Slite knowledge base                           |
 | [sytex](./skills/sytex)                     | Interact with Sytex production API                          |
 | [sytex-excel-form-template-workflow](./skills/sytex-excel-form-template-workflow) | Work with Sytex Excel form templates safely                |
+| [video-to-doc](./skills/video-to-doc) | Generate Sytex docs from screen recordings (Markdown + DOCX) |
 | [database](./skills/database)               | Read-only MySQL/MariaDB client for querying databases       |
 | [wizard](./skills/wizard)                   | Generate Sytex wizard JSON configurations                   |
 
