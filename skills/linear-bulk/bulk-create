@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""
+Linear Bulk Issue Creator
+Creates multiple Linear issues from a JSON file with support for:
+- Assignee, label, team overrides
+- Parent issue grouping (sub-issues)
+- Dry-run validation
+"""
+
+import json
+import os
+import sys
+import urllib.request
+import argparse
+
+
+def load_config():
+    env_file = os.path.expanduser("~/.agent-skills/linear/.env")
+    api_key = None
+    if os.path.exists(env_file):
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("LINEAR_API_KEY="):
+                    api_key = line.split("=", 1)[1].strip('"').strip("'")
+    if not api_key:
+        print("ERROR: LINEAR_API_KEY not found in ~/.agent-skills/linear/.env", file=sys.stderr)
+        sys.exit(1)
+    return api_key
+
+
+API_URL = "https://api.linear.app/graphql"
+
+
+def gql(api_key, query, variables=None):
+    data = {"query": query}
+    if variables:
+        data["variables"] = variables
+    req = urllib.request.Request(
+        API_URL,
+        data=json.dumps(data).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Authorization": api_key},
+    )
+    resp = urllib.request.urlopen(req)
+    return json.loads(resp.read())
+
+
+def resolve_user(api_key, username):
+    """Resolve a username or display name to a user ID."""
+    result = gql(api_key, "{ users { nodes { id name displayName } } }")
+    users = result.get("data", {}).get("users", {}).get("nodes", [])
+    # Try exact match on displayName first, then name, then partial
+    for u in users:
+        if u.get("displayName", "").lower() == username.lower():
+            return u["id"], u.get("name") or u.get("displayName")
+    for u in users:
+        if u.get("name", "").lower() == username.lower():
+            return u["id"], u.get("name") or u.get("displayName")
+    for u in users:
+        if username.lower() in (u.get("name", "") + u.get("displayName", "")).lower():
+            return u["id"], u.get("name") or u.get("displayName")
+    return None, None
+
+
+def resolve_team(api_key, team_key):
+    """Resolve a team key to a team ID."""
+    result = gql(api_key, "{ teams { nodes { id key name } } }")
+    teams = result.get("data", {}).get("teams", {}).get("nodes", [])
+    for t in teams:
+        if t["key"].upper() == team_key.upper():
+            return t["id"], t["key"]
+    return None, None
+
+
+def resolve_label(api_key, label_name, team_id):
+    """Find a label by name for a specific team."""
+    result = gql(api_key, '{ issueLabels(first: 250) { nodes { id name team { id key } } } }')
+    labels = result.get("data", {}).get("issueLabels", {}).get("nodes", [])
+    # First try team-specific label
+    for lb in labels:
+        team = lb.get("team")
+        if team and team["id"] == team_id and lb["name"].lower() == label_name.lower():
+            return lb["id"], lb["name"]
+    # Try workspace-level label
+    for lb in labels:
+        if lb.get("team") is None and lb["name"].lower() == label_name.lower():
+            return lb["id"], lb["name"]
+    # Partial match on team
+    for lb in labels:
+        team = lb.get("team")
+        if team and team["id"] == team_id and label_name.lower() in lb["name"].lower():
+            return lb["id"], lb["name"]
+    return None, None
+
+
+CREATE_MUTATION = """mutation CreateIssue($input: IssueCreateInput!) {
+    issueCreate(input: $input) {
+        success
+        issue { id identifier title url }
+    }
+}"""
+
+
+def create_issue(api_key, input_data):
+    """Create a single issue, return (identifier, title, id) or raise."""
+    result = gql(api_key, CREATE_MUTATION, {"input": input_data})
+    errors = result.get("errors")
+    if errors:
+        msg = errors[0].get("extensions", {}).get("userPresentableMessage", errors[0].get("message", "Unknown error"))
+        return None, None, None, msg
+    data = result.get("data", {}).get("issueCreate", {})
+    if data.get("success"):
+        issue = data["issue"]
+        return issue["identifier"], issue["title"], issue["id"], None
+    return None, None, None, "Unknown error"
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Bulk-create Linear issues from JSON")
+    parser.add_argument("json_file", help="Path to JSON file with issues")
+    parser.add_argument("--team", help="Team key (overrides per-issue teamKey)")
+    parser.add_argument("--assignee", help="Assignee username or display name")
+    parser.add_argument("--label", help="Label name to apply to all issues")
+    parser.add_argument("--parent-title", help="Create parent issue with this title")
+    parser.add_argument("--parent-description", help="Description for parent issue", default="")
+    parser.add_argument("--parent-priority", type=int, help="Priority for parent issue")
+    parser.add_argument("--dry-run", action="store_true", help="Validate without creating")
+    args = parser.parse_args()
+
+    # Load JSON
+    try:
+        with open(args.json_file) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, FileNotFoundError) as e:
+        print(f"ERROR: Could not read JSON file: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    issues = data.get("issues", [])
+    if not issues:
+        print("ERROR: No issues found in JSON (expected 'issues' array)", file=sys.stderr)
+        sys.exit(1)
+
+    # Validate each issue has a title
+    for i, issue in enumerate(issues, 1):
+        if not issue.get("title"):
+            print(f"ERROR: Issue #{i} missing 'title'", file=sys.stderr)
+            sys.exit(1)
+
+    api_key = load_config()
+
+    # Resolve team
+    team_key = args.team or issues[0].get("teamKey")
+    if not team_key:
+        print("ERROR: No team specified. Use --team or include teamKey in JSON.", file=sys.stderr)
+        sys.exit(1)
+
+    team_id, team_resolved = resolve_team(api_key, team_key)
+    if not team_id:
+        print(f"ERROR: Team '{team_key}' not found", file=sys.stderr)
+        sys.exit(1)
+
+    # Resolve assignee
+    assignee_id = None
+    assignee_name = None
+    if args.assignee:
+        assignee_id, assignee_name = resolve_user(api_key, args.assignee)
+        if not assignee_id:
+            print(f"ERROR: User '{args.assignee}' not found", file=sys.stderr)
+            sys.exit(1)
+
+    # Resolve label
+    label_id = None
+    label_name_resolved = None
+    if args.label:
+        label_id, label_name_resolved = resolve_label(api_key, args.label, team_id)
+        if not label_id:
+            print(f"WARNING: Label '{args.label}' not found for team {team_resolved}. Proceeding without label.", file=sys.stderr)
+
+    # Summary
+    print(f"Team:     {team_resolved} ({team_id})")
+    if assignee_name:
+        print(f"Assignee: {assignee_name}")
+    if label_name_resolved:
+        print(f"Label:    {label_name_resolved}")
+    if args.parent_title:
+        print(f"Parent:   {args.parent_title}")
+    print(f"Issues:   {len(issues)}")
+    print()
+
+    if args.dry_run:
+        print("=== DRY RUN - No issues will be created ===\n")
+        for i, issue in enumerate(issues, 1):
+            p = issue.get("priority", "-")
+            t = args.team or issue.get("teamKey", team_key)
+            print(f"  #{i}: [{t}] P{p} | {issue['title']}")
+        print(f"\nValidation OK: {len(issues)} issues ready to create.")
+        return
+
+    # Create parent if requested
+    parent_id = None
+    if args.parent_title:
+        parent_priority = args.parent_priority
+        if parent_priority is None:
+            priorities = [i.get("priority") for i in issues if i.get("priority")]
+            parent_priority = min(priorities) if priorities else 3
+
+        inp = {
+            "title": args.parent_title,
+            "teamId": team_id,
+            "priority": parent_priority,
+        }
+        if args.parent_description:
+            inp["description"] = args.parent_description
+        if assignee_id:
+            inp["assigneeId"] = assignee_id
+        if label_id:
+            inp["labelIds"] = [label_id]
+
+        identifier, title, pid, err = create_issue(api_key, inp)
+        if err:
+            print(f"ERROR creating parent: {err}", file=sys.stderr)
+            sys.exit(1)
+        parent_id = pid
+        print(f"PARENT: {identifier} | {title}")
+
+    # Create sub-issues
+    for i, issue in enumerate(issues, 1):
+        issue_team_key = args.team or issue.get("teamKey", team_key)
+        issue_team_id = team_id
+        if issue_team_key.upper() != team_key.upper():
+            issue_team_id, _ = resolve_team(api_key, issue_team_key)
+            if not issue_team_id:
+                print(f"  #{i}: ERROR - Team '{issue_team_key}' not found")
+                continue
+
+        inp = {
+            "title": issue["title"],
+            "teamId": issue_team_id,
+        }
+        if issue.get("description"):
+            inp["description"] = issue["description"]
+        if issue.get("priority"):
+            inp["priority"] = issue["priority"]
+        if assignee_id:
+            inp["assigneeId"] = assignee_id
+        if label_id:
+            inp["labelIds"] = [label_id]
+        if parent_id:
+            inp["parentId"] = parent_id
+
+        identifier, title, _, err = create_issue(api_key, inp)
+        if err:
+            print(f"  #{i}: ERROR - {err}")
+        else:
+            p = issue.get("priority", "-")
+            print(f"  #{i}:   {identifier} | P{p} | {title}")
+
+
+if __name__ == "__main__":
+    main()
