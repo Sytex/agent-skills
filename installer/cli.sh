@@ -6,6 +6,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILLS_DIR="$(dirname "$SCRIPT_DIR")/skills"
+WORKSPACES_DIR="$(dirname "$SCRIPT_DIR")/workspaces"
 BIN_DIR="$SCRIPT_DIR/bin"
 GUM_VERSION="0.14.5"
 
@@ -1702,6 +1703,219 @@ do_uninstall() {
 # Main Loop
 # ============================================================================
 
+workspace_menu() {
+    header "Install Workspace"
+
+    # List available workspaces
+    local ws_options=()
+    local ws_ids=()
+    for ws_dir in "$WORKSPACES_DIR"/*/; do
+        [[ -f "$ws_dir/workspace.json" ]] || continue
+        local ws_id
+        ws_id=$(basename "$ws_dir")
+        local ws_title
+        ws_title=$(python3 -c "import json; print(json.load(open('$ws_dir/workspace.json')).get('title', '$ws_id'))")
+        ws_ids+=("$ws_id")
+        ws_options+=("$ws_title")
+    done
+
+    if [[ ${#ws_options[@]} -eq 0 ]]; then
+        style yellow "No workspaces available"
+        echo ""
+        read -p "Press Enter to continue..."
+        return
+    fi
+
+    ws_options+=("Back")
+
+    local ws_choice
+    ws_choice=$(choose "Select a workspace:" "${ws_options[@]}")
+    [[ "$ws_choice" == "Back" ]] && return
+
+    # Find selected workspace ID
+    local selected_ws=""
+    for i in "${!ws_options[@]}"; do
+        if [[ "${ws_options[$i]}" == "$ws_choice" ]]; then
+            selected_ws="${ws_ids[$i]}"
+            break
+        fi
+    done
+    [[ -z "$selected_ws" ]] && return
+
+    # Ask for target path
+    echo ""
+    style bold "Enter the absolute path to your workspace folder:"
+    read -r target_path
+    target_path="${target_path/#\~/$HOME}"
+
+    if [[ ! -d "$target_path" ]]; then
+        style red "Directory does not exist: $target_path"
+        echo ""
+        read -p "Press Enter to continue..."
+        return
+    fi
+
+    # List providers with workspace content
+    local provider_options=()
+    local provider_ids=()
+    local ws_skills_dir="$WORKSPACES_DIR/$selected_ws/skills"
+    local available_providers
+    available_providers=$(python3 -c "
+import json
+from pathlib import Path
+
+providers_file = Path('$PROVIDERS_FILE')
+skills_dir = Path('$ws_skills_dir')
+
+# Find providers that have content
+available = set()
+if skills_dir.exists():
+    for skill_dir in skills_dir.iterdir():
+        if skill_dir.is_dir():
+            for pdir in skill_dir.iterdir():
+                if pdir.is_dir():
+                    available.add(pdir.name)
+
+# Get provider names from providers.json
+provider_names = {}
+if providers_file.exists():
+    with open(providers_file) as f:
+        for p in json.load(f):
+            provider_names[p['id']] = p['name']
+
+for pid in sorted(available):
+    name = provider_names.get(pid, pid)
+    print(f'{pid}|{name}')
+")
+
+    while IFS='|' read -r pid pname; do
+        provider_ids+=("$pid")
+        provider_options+=("$pname")
+    done <<< "$available_providers"
+
+    if [[ ${#provider_options[@]} -eq 0 ]]; then
+        style yellow "No provider content available for this workspace"
+        echo ""
+        read -p "Press Enter to continue..."
+        return
+    fi
+
+    provider_options+=("Back")
+
+    local provider_choice
+    provider_choice=$(choose "Select your provider:" "${provider_options[@]}")
+    [[ "$provider_choice" == "Back" ]] && return
+
+    local selected_provider=""
+    for i in "${!provider_options[@]}"; do
+        if [[ "${provider_options[$i]}" == "$provider_choice" ]]; then
+            selected_provider="${provider_ids[$i]}"
+            break
+        fi
+    done
+    [[ -z "$selected_provider" ]] && return
+
+    # Install workspace
+    echo ""
+    style bold "Installing workspace '$selected_ws' to $target_path for $provider_choice..."
+
+    local result
+    result=$(python3 -c "
+import json, sys
+from pathlib import Path
+
+workspace_dir = Path('$WORKSPACES_DIR') / '$selected_ws'
+target = Path('$target_path')
+provider_id = '$selected_provider'
+
+# Load provider workspace mapping
+providers_file = Path('$PROVIDERS_FILE')
+mapping = {}
+if providers_file.exists():
+    with open(providers_file) as f:
+        for p in json.load(f):
+            if p['id'] == provider_id:
+                mapping = p.get('workspace', {})
+                break
+
+if not mapping:
+    print(json.dumps({'success': False, 'error': 'No workspace config for provider'}))
+    sys.exit(0)
+
+installed = []
+
+# Install memory
+memory_src = workspace_dir / 'memory.md'
+memory_dest_rel = mapping.get('memory_file')
+if memory_src.exists() and memory_dest_rel:
+    memory_dest = target / memory_dest_rel
+    memory_dest.parent.mkdir(parents=True, exist_ok=True)
+    memory_dest.write_text(memory_src.read_text())
+    installed.append(memory_dest_rel)
+
+# Install skills
+ws_skills_dir = workspace_dir / 'skills'
+skills_dir_rel = mapping.get('skills_dir')
+
+if ws_skills_dir.exists() and skills_dir_rel:
+    for skill_dir in sorted(ws_skills_dir.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        provider_content = skill_dir / provider_id
+        if not provider_content.exists():
+            continue
+        dest_skill_dir = target / skills_dir_rel / skill_dir.name
+        dest_skill_dir.mkdir(parents=True, exist_ok=True)
+        for f in sorted(provider_content.iterdir()):
+            if not f.is_file():
+                continue
+            (dest_skill_dir / f.name).write_bytes(f.read_bytes())
+            installed.append(f'{skills_dir_rel}/{skill_dir.name}/{f.name}')
+elif ws_skills_dir.exists() and not skills_dir_rel and memory_dest_rel:
+    parts = []
+    for skill_dir in sorted(ws_skills_dir.iterdir()):
+        if not skill_dir.is_dir():
+            continue
+        provider_content = skill_dir / provider_id
+        if not provider_content.exists():
+            continue
+        for f in sorted(provider_content.iterdir()):
+            if f.is_file():
+                parts.append(f.read_text())
+    if parts:
+        memory_dest = target / memory_dest_rel
+        with open(memory_dest, 'a') as fh:
+            fh.write('\n\n')
+            fh.write('\n\n'.join(parts))
+        installed.append(f'{memory_dest_rel} (skills appended)')
+
+print(json.dumps({'success': True, 'installed': installed}))
+")
+
+    local success
+    success=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('success', False))")
+
+    if [[ "$success" == "True" ]]; then
+        echo ""
+        style green "Workspace installed successfully!"
+        echo ""
+        echo "Installed files:"
+        echo "$result" | python3 -c "
+import json, sys
+data = json.load(sys.stdin)
+for f in data.get('installed', []):
+    print(f'  {f}')
+"
+    else
+        local error
+        error=$(echo "$result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('error', 'Unknown error'))")
+        style red "Installation failed: $error"
+    fi
+
+    echo ""
+    read -p "Press Enter to continue..."
+}
+
 main_menu() {
     while true; do
         header "Agent Skills Installer"
@@ -1779,6 +1993,7 @@ for skill_dir in sorted(skills_dir.iterdir()):
         done <<< "$all_skills_info"
 
         skill_options+=("─────────────")
+        skill_options+=("Install Workspace")
         skill_options+=("Update Skills")
         skill_options+=("Manage Providers")
         skill_options+=("Exit")
@@ -1788,6 +2003,7 @@ for skill_dir in sorted(skills_dir.iterdir()):
         choice=$(choose "Select a skill:" "${skill_options[@]}")
 
         [[ "$choice" == "Exit" || "$choice" == "Back" ]] && break
+        [[ "$choice" == "Install Workspace" ]] && { workspace_menu; continue; }
         [[ "$choice" == "Update Skills" ]] && { update_skills; continue; }
         [[ "$choice" == "Manage Providers" ]] && { manage_providers; continue; }
         [[ "$choice" == "─────────────" ]] && continue

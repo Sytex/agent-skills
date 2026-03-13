@@ -18,6 +18,7 @@ _FROZEN = getattr(sys, '_MEIPASS', None)
 SCRIPT_DIR = Path(_FROZEN) if _FROZEN else Path(__file__).parent.resolve()
 _installer_dir = Path(os.environ["INSTALLER_DIR"]) if "INSTALLER_DIR" in os.environ else SCRIPT_DIR
 SKILLS_DIR = Path(os.environ["SKILLS_DIR"]) if "SKILLS_DIR" in os.environ else SCRIPT_DIR.parent / "skills"
+WORKSPACES_DIR = Path(os.environ["WORKSPACES_DIR"]) if "WORKSPACES_DIR" in os.environ else SCRIPT_DIR.parent / "workspaces"
 TEMPLATES_DIR = _installer_dir / "templates"
 PROVIDERS_FILE = _installer_dir / "providers.json"
 
@@ -848,6 +849,119 @@ def uninstall_skill_from_provider(skill_id, provider_id):
     return False
 
 
+def get_workspaces():
+    """Get list of available workspaces."""
+    workspaces = []
+    if not WORKSPACES_DIR.exists():
+        return workspaces
+    for ws_dir in sorted(WORKSPACES_DIR.iterdir()):
+        ws_json = ws_dir / "workspace.json"
+        if not ws_json.exists():
+            continue
+        with open(ws_json) as f:
+            data = json.load(f)
+        data["id"] = ws_dir.name
+
+        available_providers = set()
+        skills = []
+        skills_dir = ws_dir / "skills"
+        if skills_dir.exists():
+            for skill_dir in sorted(skills_dir.iterdir()):
+                if not skill_dir.is_dir():
+                    continue
+                skills.append(skill_dir.name)
+                for provider_dir in skill_dir.iterdir():
+                    if provider_dir.is_dir():
+                        available_providers.add(provider_dir.name)
+        data["available_providers"] = sorted(available_providers)
+        data["skills"] = skills
+        workspaces.append(data)
+    return workspaces
+
+
+def get_workspace_provider_mapping(provider_id):
+    """Get workspace file mapping for a provider."""
+    if PROVIDERS_FILE.exists():
+        with open(PROVIDERS_FILE) as f:
+            for p in json.load(f):
+                if p["id"] == provider_id:
+                    return p.get("workspace", {})
+
+    config = load_config()
+    provider_config = config.get("providers", {}).get(provider_id, {})
+    return provider_config.get("workspace", {})
+
+
+def install_workspace_to_provider(workspace_id, target_path, provider_id):
+    """Install workspace files to target path for a specific provider."""
+    workspace_dir = WORKSPACES_DIR / workspace_id
+    if not workspace_dir.exists():
+        return {"success": False, "error": "Workspace not found"}
+
+    mapping = get_workspace_provider_mapping(provider_id)
+    if not mapping:
+        return {"success": False, "error": f"No workspace config for provider '{provider_id}'"}
+
+    target = Path(target_path).expanduser()
+    if not target.exists():
+        return {"success": False, "error": f"Target path does not exist: {target_path}"}
+
+    installed_files = []
+
+    # Install memory
+    memory_src = workspace_dir / "memory.md"
+    memory_dest_rel = mapping.get("memory_file")
+    if memory_src.exists() and memory_dest_rel:
+        memory_dest = target / memory_dest_rel
+        memory_dest.parent.mkdir(parents=True, exist_ok=True)
+        memory_dest.write_text(memory_src.read_text())
+        installed_files.append(memory_dest_rel)
+
+    # Install skills
+    ws_skills_dir = workspace_dir / "skills"
+    skills_dir_rel = mapping.get("skills_dir")
+
+    if not ws_skills_dir.exists():
+        return {"success": True, "installed_files": installed_files}
+
+    if skills_dir_rel:
+        # Provider has a skills directory (e.g., Claude Code)
+        for skill_dir in sorted(ws_skills_dir.iterdir()):
+            if not skill_dir.is_dir():
+                continue
+            provider_content = skill_dir / provider_id
+            if not provider_content.exists():
+                continue
+            dest_skill_dir = target / skills_dir_rel / skill_dir.name
+            dest_skill_dir.mkdir(parents=True, exist_ok=True)
+            for f in sorted(provider_content.iterdir()):
+                if not f.is_file():
+                    continue
+                dest_file = dest_skill_dir / f.name
+                dest_file.write_bytes(f.read_bytes())
+                installed_files.append(f"{skills_dir_rel}/{skill_dir.name}/{f.name}")
+    else:
+        # Provider without skills dir (e.g., Codex, Gemini) — append skills to memory file
+        content_parts = []
+        for skill_dir in sorted(ws_skills_dir.iterdir()):
+            if not skill_dir.is_dir():
+                continue
+            provider_content = skill_dir / provider_id
+            if not provider_content.exists():
+                continue
+            for f in sorted(provider_content.iterdir()):
+                if f.is_file():
+                    content_parts.append(f.read_text())
+        if content_parts and memory_dest_rel:
+            memory_dest = target / memory_dest_rel
+            with open(memory_dest, "a") as fh:
+                fh.write("\n\n")
+                fh.write("\n\n".join(content_parts))
+            installed_files.append(f"{memory_dest_rel} (skills appended)")
+
+    return {"success": True, "installed_files": installed_files}
+
+
 class RequestHandler(http.server.BaseHTTPRequestHandler):
     """HTTP request handler for the installer."""
 
@@ -901,6 +1015,8 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
             self.send_json(get_providers_status())
         elif path == "/api/skills":
             self.send_json(get_skills())
+        elif path == "/api/workspaces":
+            self.send_json(get_workspaces())
         elif path == "/api/check-updates":
             self.send_json(check_for_updates())
         elif path.startswith("/api/skills/") and path.endswith("/dependencies"):
@@ -995,6 +1111,18 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
         if path == "/api/update":
             result = update_repo()
             self.send_json(result)
+            return
+
+        if path.startswith("/api/workspaces/") and path.endswith("/install"):
+            workspace_id = path.split("/")[3]
+            target_path = data.get("target_path", "")
+            provider_id = data.get("provider_id", "")
+            if not target_path or not provider_id:
+                self.send_json({"error": "target_path and provider_id are required"}, 400)
+                return
+            result = install_workspace_to_provider(workspace_id, target_path, provider_id)
+            status = 200 if result.get("success") else 400
+            self.send_json(result, status)
             return
 
         skills = {s["id"]: s for s in get_skills()}

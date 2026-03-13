@@ -45,11 +45,13 @@ pub fn run() {
             let resource_path = app.path().resource_dir()?;
             let server_bin = resource_path.join("agent-skills-server/agent-skills-server");
             let skills_dir = resource_path.join("skills");
+            let workspaces_dir = resource_path.join("workspaces");
 
             let child = Command::new(&server_bin)
                 .arg("--no-browser")
                 .arg(port.to_string())
                 .env("SKILLS_DIR", &skills_dir)
+                .env("WORKSPACES_DIR", &workspaces_dir)
                 .env("BUNDLED_MODE", "1")
                 .spawn()
                 .expect("Failed to start agent-skills-server");

@@ -1,5 +1,29 @@
 [
-  {"id": "claude", "name": "Claude Code", "path": "~/.claude/skills"},
-  {"id": "codex", "name": "Codex CLI", "path": "~/.codex/skills"},
-  {"id": "gemini", "name": "Gemini CLI", "path": "~/.gemini/skills"}
+  {
+    "id": "claude",
+    "name": "Claude Code",
+    "path": "~/.claude/skills",
+    "workspace": {
+      "memory_file": ".claude/CLAUDE.md",
+      "skills_dir": ".claude/skills"
+    }
+  },
+  {
+    "id": "codex",
+    "name": "Codex CLI",
+    "path": "~/.codex/skills",
+    "workspace": {
+      "memory_file": "AGENTS.md",
+      "skills_dir": null
+    }
+  },
+  {
+    "id": "gemini",
+    "name": "Gemini CLI",
+    "path": "~/.gemini/skills",
+    "workspace": {
+      "memory_file": "GEMINI.md",
+      "skills_dir": null
+    }
+  }
 ]
