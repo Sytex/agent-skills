@@ -1,0 +1,61 @@
+#!/bin/bash
+# Send or edit a Discord message via Kadmos API
+
+KADMOS_API="${KADMOS_API_URL:-http://127.0.0.1:7832}"
+
+CHANNEL_ID=""
+CONTENT=""
+FILE=""
+EDIT_MESSAGE_ID=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --channel-id) CHANNEL_ID="$2"; shift 2 ;;
+        --content) CONTENT="$2"; shift 2 ;;
+        --file) FILE="$2"; shift 2 ;;
+        --edit) EDIT_MESSAGE_ID="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+
+if [[ -z "$CHANNEL_ID" ]]; then
+    echo '{"error": "--channel-id is required"}'
+    exit 1
+fi
+
+# Read content from file if --file is provided
+if [[ -n "$FILE" ]]; then
+    if [[ ! -f "$FILE" ]]; then
+        echo "{\"error\": \"File not found: $FILE\"}"
+        exit 1
+    fi
+    CONTENT=$(cat "$FILE")
+fi
+
+if [[ -z "$CONTENT" ]]; then
+    echo '{"error": "--content or --file is required"}'
+    exit 1
+fi
+
+# Edit existing message
+if [[ -n "$EDIT_MESSAGE_ID" ]]; then
+    PAYLOAD=$(jq -n \
+        --arg channel_id "$CHANNEL_ID" \
+        --arg content "$CONTENT" \
+        '{channel_id: ($channel_id | tonumber), content: $content}')
+
+    curl -s -X PATCH "${KADMOS_API}/api/messages/${EDIT_MESSAGE_ID}" \
+        -H "Content-Type: application/json" \
+        -d "$PAYLOAD"
+    exit 0
+fi
+
+# Send new message
+PAYLOAD=$(jq -n \
+    --arg channel_id "$CHANNEL_ID" \
+    --arg content "$CONTENT" \
+    '{channel_id: ($channel_id | tonumber), content: $content}')
+
+curl -s -X POST "${KADMOS_API}/api/messages" \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD"

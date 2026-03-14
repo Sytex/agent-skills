@@ -1,0 +1,125 @@
+#!/bin/bash
+# Kadmos Metrics CLI
+
+KADMOS_API="${KADMOS_API_URL:-http://127.0.0.1:7832}"
+
+# Parse global flags
+PERIOD=""
+USER_ID=""
+LIMIT=""
+
+args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --period) PERIOD="$2"; shift 2 ;;
+        --user-id) USER_ID="$2"; shift 2 ;;
+        --limit) LIMIT="$2"; shift 2 ;;
+        *) args+=("$1"); shift ;;
+    esac
+done
+set -- "${args[@]}"
+
+# Build query string from flags
+build_query() {
+    local params=""
+    [[ -n "$PERIOD" ]] && params="${params}&period=${PERIOD}"
+    [[ -n "$USER_ID" ]] && params="${params}&user_id=${USER_ID}"
+    [[ -n "$LIMIT" ]] && params="${params}&limit=${LIMIT}"
+    # Remove leading &
+    echo "${params#&}"
+}
+
+query_url() {
+    local endpoint="$1"
+    local query
+    query=$(build_query)
+    if [[ -n "$query" ]]; then
+        echo "${KADMOS_API}/api/metrics/${endpoint}?${query}"
+    else
+        echo "${KADMOS_API}/api/metrics/${endpoint}"
+    fi
+}
+
+# === COMMANDS ===
+
+cmd_summary() {
+    local url
+    url=$(query_url "summary")
+    curl -s "$url"
+}
+
+cmd_users() {
+    local url
+    url=$(query_url "users")
+    curl -s "$url"
+}
+
+cmd_topics() {
+    local url
+    url=$(query_url "topics")
+    curl -s "$url"
+}
+
+cmd_roles() {
+    local url
+    url=$(query_url "roles")
+    curl -s "$url"
+}
+
+cmd_features() {
+    local url
+    url=$(query_url "features")
+    curl -s "$url"
+}
+
+cmd_help() {
+    cat << 'EOF'
+Kadmos Metrics CLI
+
+USAGE:
+  kadmos-metrics <command> [options]
+
+COMMANDS:
+  summary    Overall usage summary
+  users      User ranking by cost/operations
+  topics     Breakdown by topic
+  roles      Breakdown by user role
+  features   Feature adoption stats
+
+OPTIONS:
+  --period <PERIOD>    Time period: day, week, month, all (default: all)
+  --user-id <ID>       Filter by user ID (summary only)
+  --limit <N>          Max results (users only, default: 10)
+
+EXAMPLES:
+  # All-time summary
+  kadmos-metrics summary
+
+  # Last week's summary for a user
+  kadmos-metrics summary --period week --user-id 123456
+
+  # Top 5 users this month
+  kadmos-metrics users --period month --limit 5
+
+  # Topic breakdown for last week
+  kadmos-metrics topics --period week
+
+  # Role breakdown
+  kadmos-metrics roles --period month
+
+  # Feature adoption this week
+  kadmos-metrics features --period week
+EOF
+}
+
+# === MAIN ===
+
+case "$1" in
+    summary) cmd_summary ;;
+    users) cmd_users ;;
+    topics) cmd_topics ;;
+    roles) cmd_roles ;;
+    features) cmd_features ;;
+    help|--help|-h) cmd_help ;;
+    *) cmd_help; exit 1 ;;
+esac

@@ -1,0 +1,87 @@
+#!/bin/bash
+# Kadmos Dev Environment CLI
+
+KADMOS_API="${KADMOS_API_URL:-http://127.0.0.1:7832}"
+
+# === COMMANDS ===
+
+cmd_create() {
+    local branch=""
+    local user_id=""
+    local guild_id=""
+    local channel_id=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --branch) branch="$2"; shift 2 ;;
+            --user-id) user_id="$2"; shift 2 ;;
+            --guild-id) guild_id="$2"; shift 2 ;;
+            --channel-id) channel_id="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    [[ -z "$branch" ]] && echo '{"error": "--branch is required"}' && exit 1
+    [[ -z "$user_id" ]] && echo '{"error": "--user-id is required"}' && exit 1
+    [[ -z "$guild_id" ]] && echo '{"error": "--guild-id is required"}' && exit 1
+    [[ -z "$channel_id" ]] && echo '{"error": "--channel-id is required"}' && exit 1
+
+    curl -s -X POST "${KADMOS_API}/api/devenv" \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"branch\": \"$branch\",
+            \"user_id\": $user_id,
+            \"guild_id\": $guild_id,
+            \"channel_id\": $channel_id
+        }"
+}
+
+cmd_status() {
+    local env_id="$1"
+    [[ -z "$env_id" ]] && echo '{"error": "env_id argument required"}' && exit 1
+
+    curl -s "${KADMOS_API}/api/devenv/${env_id}"
+}
+
+cmd_list() {
+    curl -s "${KADMOS_API}/api/devenv"
+}
+
+cmd_destroy() {
+    local env_id="$1"
+    [[ -z "$env_id" ]] && echo '{"error": "env_id argument required"}' && exit 1
+
+    curl -s -X DELETE "${KADMOS_API}/api/devenv/${env_id}"
+}
+
+cmd_help() {
+    cat << 'EOF'
+Kadmos Dev Environment CLI
+
+USAGE:
+  kadmos-devenv <command> [options]
+
+COMMANDS:
+  create [options]      Create a new dev environment
+  status <env_id>       Check environment status
+  list                  List active environments
+  destroy <env_id>      Destroy an environment
+
+CREATE OPTIONS:
+  --branch <NAME>       Branch name (required)
+  --user-id <ID>        Discord user ID (required)
+  --guild-id <ID>       Discord guild ID (required)
+  --channel-id <ID>     Channel ID (required)
+EOF
+}
+
+# === MAIN ===
+
+case "${1:-}" in
+    create) shift; cmd_create "$@" ;;
+    status) cmd_status "$2" ;;
+    list) cmd_list ;;
+    destroy) cmd_destroy "$2" ;;
+    help|--help|-h) cmd_help ;;
+    *) cmd_help; exit 1 ;;
+esac

@@ -1,0 +1,192 @@
+#!/bin/bash
+# Kadmos Schedules CLI
+
+KADMOS_API="${KADMOS_API_URL:-http://127.0.0.1:7832}"
+
+# Parse global flags
+USER_ID=""
+GUILD_ID=""
+LIST_ALL=""
+
+args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --user-id) USER_ID="$2"; shift 2 ;;
+        --guild-id) GUILD_ID="$2"; shift 2 ;;
+        --all) LIST_ALL="true"; shift ;;
+        *) args+=("$1"); shift ;;
+    esac
+done
+set -- "${args[@]}"
+
+# Validate user_id for commands that need it
+validate_user() {
+    if [[ -z "$USER_ID" ]]; then
+        echo '{"error": "--user-id is required"}'
+        exit 1
+    fi
+}
+
+# === COMMANDS ===
+
+cmd_list() {
+    # Always list all schedules — they are a shared team resource.
+    # --user-id is still accepted (needed by other commands) but ignored for list.
+    curl -s "${KADMOS_API}/api/schedules?all=true"
+}
+
+cmd_create() {
+    validate_user
+    [[ -z "$GUILD_ID" ]] && echo '{"error": "--guild-id is required"}' && exit 1
+
+    local channel_id=""
+    local prompt=""
+    local title=""
+    local cron=""
+    local timezone=""
+    local one_shot="false"
+    local mentions=""
+    local task_id=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --channel-id) channel_id="$2"; shift 2 ;;
+            --prompt) prompt="$2"; shift 2 ;;
+            --title) title="$2"; shift 2 ;;
+            --cron) cron="$2"; shift 2 ;;
+            --timezone) timezone="$2"; shift 2 ;;
+            --one-shot) one_shot="true"; shift ;;
+            --mentions) mentions="$2"; shift 2 ;;
+            --task-id) task_id="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    [[ -z "$channel_id" ]] && echo '{"error": "--channel-id is required"}' && exit 1
+    [[ -z "$cron" ]] && echo '{"error": "--cron is required"}' && exit 1
+    [[ -z "$timezone" ]] && echo '{"error": "--timezone is required"}' && exit 1
+
+    # Need either --task-id or --prompt
+    if [[ -z "$task_id" && -z "$prompt" ]]; then
+        echo '{"error": "--task-id or --prompt is required"}'
+        exit 1
+    fi
+
+    local mentions_field=""
+    if [[ -n "$mentions" ]]; then
+        mentions_field=", \"mentions\": $mentions"
+    fi
+
+    local task_id_field=""
+    if [[ -n "$task_id" ]]; then
+        task_id_field=", \"task_id\": \"$task_id\""
+    fi
+
+    local prompt_field=""
+    if [[ -n "$prompt" ]]; then
+        prompt_field=", \"prompt\": \"$prompt\""
+    fi
+
+    local title_field=""
+    if [[ -n "$title" ]]; then
+        title_field=", \"title\": \"$title\""
+    fi
+
+    curl -s -X POST "${KADMOS_API}/api/schedules" \
+        -H "Content-Type: application/json" \
+        -d "{
+            \"user_id\": $USER_ID,
+            \"guild_id\": $GUILD_ID,
+            \"channel_id\": $channel_id,
+            \"cron\": \"$cron\",
+            \"timezone\": \"$timezone\",
+            \"one_shot\": $one_shot
+            $task_id_field
+            $prompt_field
+            $title_field
+            $mentions_field
+        }"
+}
+
+cmd_delete() {
+    validate_user
+    local schedule_id="$1"
+    [[ -z "$schedule_id" ]] && echo '{"error": "schedule_id argument required"}' && exit 1
+
+    curl -s -X DELETE "${KADMOS_API}/api/schedules/${schedule_id}?user_id=${USER_ID}"
+}
+
+cmd_update() {
+    validate_user
+    local schedule_id="$1"
+    shift
+    [[ -z "$schedule_id" ]] && echo '{"error": "schedule_id argument required"}' && exit 1
+
+    local fields="\"user_id\": $USER_ID"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --prompt) fields="$fields, \"prompt\": \"$2\""; shift 2 ;;
+            --title) fields="$fields, \"title\": \"$2\""; shift 2 ;;
+            --cron) fields="$fields, \"cron\": \"$2\""; shift 2 ;;
+            --timezone) fields="$fields, \"timezone\": \"$2\""; shift 2 ;;
+            --enabled) fields="$fields, \"enabled\": $2"; shift 2 ;;
+            --mentions) fields="$fields, \"mentions\": $2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    curl -s -X PATCH "${KADMOS_API}/api/schedules/${schedule_id}" \
+        -H "Content-Type: application/json" \
+        -d "{$fields}"
+}
+
+cmd_help() {
+    cat << 'EOF'
+Kadmos Schedules CLI
+
+USAGE:
+  kadmos-schedules --user-id <ID> [--guild-id <ID>] <command> [options]
+  kadmos-schedules --all list
+
+COMMANDS:
+  list                              List schedules (requires --user-id or --all)
+  create [options]                  Create a new schedule
+  delete <schedule_id>              Delete a schedule
+  update <schedule_id> [options]    Update a schedule
+
+GLOBAL FLAGS:
+  --user-id <ID>    Discord user ID
+  --guild-id <ID>   Discord guild ID (required for create)
+  --all             List all schedules from all users
+
+CREATE OPTIONS:
+  --channel-id <ID>      Channel where results will be posted (required)
+  --cron <EXPR>          Cron expression in user's timezone (required)
+  --timezone <TZ>        User's timezone, e.g. America/New_York (required)
+  --task-id <ID>         Reference an existing task (alternative to --prompt)
+  --prompt <TEXT>         Task description (auto-creates a task if no --task-id)
+  --title <TEXT>          Task title (used when auto-creating a task)
+  --mentions <JSON>      JSON array of user/role IDs to mention
+  --one-shot             Run once then delete
+
+UPDATE OPTIONS:
+  --prompt <TEXT>         New task description (updates linked task)
+  --title <TEXT>          New task title (updates linked task)
+  --cron <EXPR>           New cron expression
+  --timezone <TZ>         New timezone
+  --enabled <BOOL>        Enable/disable (true/false)
+  --mentions <JSON>       New mentions array
+EOF
+}
+
+# === MAIN ===
+
+case "$1" in
+    list) cmd_list ;;
+    create) shift; cmd_create "$@" ;;
+    delete) cmd_delete "$2" ;;
+    update) shift; cmd_update "$@" ;;
+    help|--help|-h) cmd_help ;;
+    *) cmd_help; exit 1 ;;
+esac

@@ -1,0 +1,393 @@
+#!/usr/bin/env python3
+"""
+Copy form answers and files from one Sytex form to another.
+Matches entries by label text between source and target forms.
+"""
+
+import argparse
+import json
+import os
+import sys
+import tempfile
+import urllib.request
+import urllib.error
+import urllib.parse
+import re
+from pathlib import Path
+
+
+def load_token():
+    """Load SYTEX_TOKEN from sytex skill config or own config."""
+    for config_path in [
+        Path.home() / ".agent-skills" / "sytex" / ".env",
+        Path.home() / ".claude" / "skills" / "copy-form" / ".env",
+        Path.home() / ".agent-skills" / "copy-form" / ".env",
+    ]:
+        if config_path.exists():
+            for line in config_path.read_text().splitlines():
+                line = line.strip()
+                if line.startswith("SYTEX_TOKEN="):
+                    return line.split("=", 1)[1].strip().strip('"').strip("'")
+    return os.environ.get("SYTEX_TOKEN")
+
+
+def api_request(base_url, org_id, token, method, endpoint, data=None, files=None):
+    """Make an API request to Sytex."""
+    url = f"{base_url}/api{endpoint}"
+    headers = {
+        "Authorization": f"Token {token}",
+        "Organization": str(org_id),
+        "Accept": "application/json",
+    }
+
+    if files:
+        # Multipart file upload
+        import mimetypes
+        boundary = "----FormBoundary" + os.urandom(16).hex()
+        body = b""
+        for key, value in (data or {}).items():
+            body += f"--{boundary}\r\n".encode()
+            body += f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode()
+            body += f"{value}\r\n".encode()
+        for field_name, (filename, file_data, content_type) in files.items():
+            body += f"--{boundary}\r\n".encode()
+            body += f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'.encode()
+            body += f"Content-Type: {content_type}\r\n\r\n".encode()
+            body += file_data + b"\r\n"
+        body += f"--{boundary}--\r\n".encode()
+        headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+        req = urllib.request.Request(url, data=body, headers=headers, method=method)
+    elif data is not None:
+        headers["Content-Type"] = "application/json"
+        req = urllib.request.Request(
+            url, data=json.dumps(data).encode(), headers=headers, method=method
+        )
+    else:
+        req = urllib.request.Request(url, headers=headers, method=method)
+
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            body = resp.read().decode()
+            if body:
+                return json.loads(body)
+            return {}
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode() if e.fp else ""
+        print(f"  ERROR {e.code}: {error_body[:500]}", file=sys.stderr)
+        raise
+
+
+def normalize_label(label):
+    """Normalize a label for comparison."""
+    return re.sub(r'\s+', ' ', label.strip().lower())
+
+
+def get_form_answers(base_url, org_id, token, form_id):
+    """Get all answers with files for a form."""
+    return api_request(base_url, org_id, token, "GET", f"/urformanswer/?form={form_id}")
+
+
+def get_form_detail(base_url, org_id, token, form_id):
+    """Get form detail including entries structure."""
+    return api_request(base_url, org_id, token, "GET", f"/form/{form_id}/")
+
+
+def create_form(base_url, org_id, token, template_id, task_id, source_form):
+    """Create a new form from template, copying metadata from source."""
+    data = {
+        "template": template_id,
+        "task": task_id,
+        "block_task": source_form.get("block_task", True),
+        "description": source_form.get("description", ""),
+    }
+    # Copy sites
+    sites = source_form.get("sites", [])
+    if sites:
+        data["sites"] = [s["id"] for s in sites]
+    # Copy supplier
+    if source_form.get("assigned_supplier"):
+        data["assigned_supplier"] = source_form["assigned_supplier"]["id"]
+    # Copy assigned user
+    if source_form.get("assigned_user"):
+        data["assigned_user"] = source_form["assigned_user"]["id"]
+    # Copy reviewer
+    if source_form.get("reviewer_user"):
+        data["reviewer_user"] = source_form["reviewer_user"]["id"]
+
+    result = api_request(base_url, org_id, token, "POST", "/form/", data)
+
+    # Update project separately if source has one
+    if source_form.get("project"):
+        project_id = source_form["project"]["id"]
+        api_request(base_url, org_id, token, "PATCH", f"/form/{result['id']}/", {"project": int(project_id)})
+        print(f"  Project set: {source_form['project'].get('name', project_id)}")
+
+    return result
+
+
+def build_entry_map(form_detail):
+    """Build a map of normalized_label -> entry_id from form entries."""
+    entry_map = {}
+    for group in form_detail.get("entries", []):
+        for item in group.get("items", []):
+            label = normalize_label(item["label"])
+            entry_map[label] = {
+                "entry_id": item["id"],
+                "index": item.get("index", ""),
+                "label": item["label"],
+                "entry_type": item.get("entry_type"),
+            }
+    return entry_map
+
+
+def build_answer_map(answers, form_detail):
+    """Build a map of normalized_label -> answer data from form answers."""
+    # First build entry_id -> label map from form detail
+    entry_id_to_label = {}
+    for group in form_detail.get("entries", []):
+        for item in group.get("items", []):
+            entry_id_to_label[item["id"]] = item["label"]
+
+    answer_map = {}
+    answer_list = answers if isinstance(answers, list) else answers.get("results", answers)
+    for ans in answer_list:
+        entry_id = ans.get("entry", "")
+        label = entry_id_to_label.get(entry_id, "")
+        if label:
+            normalized = normalize_label(label)
+            answer_map[normalized] = ans
+    return answer_map
+
+
+def build_target_answer_map(answers, form_detail):
+    """Build a map of entry_id -> answer_id for the target form."""
+    entry_id_to_answer = {}
+    answer_list = answers if isinstance(answers, list) else answers.get("results", answers)
+    for ans in answer_list:
+        entry_id = ans.get("entry", "")
+        entry_id_to_answer[entry_id] = ans["id"]
+    return entry_id_to_answer
+
+
+def download_file(url):
+    """Download a file and return (filename, data, content_type)."""
+    req = urllib.request.Request(url)
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = resp.read()
+        content_type = resp.headers.get("Content-Type", "application/octet-stream")
+        return data, content_type
+
+
+def copy_file_to_answer(base_url, org_id, token, answer_id, file_info):
+    """Download a file from source and upload to target answer using curl."""
+    import subprocess
+
+    file_url = file_info.get("related_file", "")
+    file_name = file_info.get("name", "file")
+    mime_type = file_info.get("mime_type", "application/octet-stream")
+
+    if not file_url:
+        print(f"    SKIP: No file URL for {file_name}")
+        return False
+
+    print(f"    Downloading: {file_name}...")
+    try:
+        file_data, _ = download_file(file_url)
+    except Exception as e:
+        print(f"    ERROR downloading {file_name}: {e}")
+        return False
+
+    # Save to temp file for curl upload
+    with tempfile.NamedTemporaryFile(suffix=f"_{file_name}", delete=False) as tmp:
+        tmp.write(file_data)
+        tmp_path = tmp.name
+
+    print(f"    Uploading to answer {answer_id[:12]}...")
+    try:
+        upload_url = f"{base_url}/api/urformanswer/{answer_id}/files/"
+        cmd = [
+            "curl", "-s", "-w", "\n%{http_code}",
+            "-X", "POST", upload_url,
+            "-H", f"Authorization: Token {token}",
+            "-H", f"Organization: {org_id}",
+            "-H", "Accept: application/json",
+            "-F", f"related_file=@{tmp_path};type={mime_type};filename={file_name}",
+            "-F", f"include_print={str(file_info.get('include_print', True)).lower()}",
+            "-F", f"order={file_info.get('order', 1)}",
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        lines = result.stdout.strip().rsplit("\n", 1)
+        http_code = lines[-1] if len(lines) > 1 else "0"
+        body = lines[0] if len(lines) > 1 else result.stdout
+
+        if http_code == "201":
+            print(f"    OK: {file_name} uploaded")
+            return True
+        else:
+            print(f"    ERROR: HTTP {http_code} - {body[:200]}")
+            return False
+    except Exception as e:
+        print(f"    ERROR uploading {file_name}: {e}")
+        return False
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Copy form answers between Sytex forms")
+    parser.add_argument("--base-url", required=True, help="Sytex instance URL")
+    parser.add_argument("--org", required=True, type=int, help="Organization ID")
+    parser.add_argument("--source-form", required=True, type=int, help="Source form ID")
+    parser.add_argument("--template", type=int, help="Template ID for new form")
+    parser.add_argument("--task", type=int, help="Task ID for new form")
+    parser.add_argument("--target-form", type=int, help="Existing target form ID (skip creation)")
+    parser.add_argument("--dry-run", action="store_true", help="Preview without making changes")
+    parser.add_argument("--skip-files", action="store_true", help="Skip file copying")
+    parser.add_argument("--skip-create", action="store_true", help="Don't create new form")
+    args = parser.parse_args()
+
+    if not args.target_form and not args.template:
+        parser.error("Either --template (to create new form) or --target-form (to use existing) is required")
+    if args.template and not args.task and not args.target_form:
+        parser.error("--task is required when creating a new form with --template")
+
+    token = load_token()
+    if not token:
+        print("ERROR: SYTEX_TOKEN not found. Set it in ~/.agent-skills/sytex/.env", file=sys.stderr)
+        sys.exit(1)
+
+    base = args.base_url.rstrip("/")
+    org = args.org
+
+    # Step 1: Read source form
+    print(f"[1/5] Reading source form {args.source_form}...")
+    source_detail = get_form_detail(base, org, token, args.source_form)
+    source_answers = get_form_answers(base, org, token, args.source_form)
+    source_answer_map = build_answer_map(source_answers, source_detail)
+    print(f"  Found {len(source_answer_map)} entries with labels")
+
+    # Count answers and files
+    total_answers = 0
+    total_files = 0
+    for label, ans in source_answer_map.items():
+        if ans.get("answer"):
+            total_answers += 1
+        total_files += len(ans.get("files", []))
+    print(f"  Answers with values: {total_answers}, Files: {total_files}")
+
+    # Step 2: Create or get target form
+    if args.target_form:
+        print(f"\n[2/5] Using existing target form {args.target_form}...")
+        target_detail = get_form_detail(base, org, token, args.target_form)
+        target_form_id = args.target_form
+    elif args.dry_run:
+        print(f"\n[2/5] DRY RUN: Would create form from template {args.template} on task {args.task}")
+        # For dry run, we need template entries - get them from API
+        print("  (Skipping creation in dry-run mode)")
+        # Try to get template info for matching preview
+        target_detail = None
+        target_form_id = None
+    else:
+        print(f"\n[2/5] Creating new form from template {args.template} on task {args.task}...")
+        target_detail = create_form(base, org, token, args.template, args.task, source_detail)
+        target_form_id = target_detail["id"]
+        print(f"  Created: {target_detail.get('code', '?')} (ID: {target_form_id})")
+        print(f"  URL: {base}/o/{org}/w/form-{target_form_id}")
+
+    if args.dry_run and not target_detail:
+        print("\n[3/5] DRY RUN: Entry matching preview (based on source entries):")
+        for label, ans in sorted(source_answer_map.items(), key=lambda x: x[1].get("index", "")):
+            has_answer = "answer" if ans.get("answer") else "empty"
+            has_files = f", {len(ans.get('files', []))} files" if ans.get("files") else ""
+            print(f"  {ans.get('index', '?')}: {ans.get('entry', '?')[:30]}... ({has_answer}{has_files})")
+        print("\n[4/5] DRY RUN: Skipping answer copy")
+        print("[5/5] DRY RUN: Skipping file copy")
+        print("\nDone (dry run). No changes made.")
+        return
+
+    # Step 3: Match entries by label
+    print(f"\n[3/5] Matching entries by label...")
+    target_entry_map = build_entry_map(target_detail)
+    target_answers = get_form_answers(base, org, token, target_form_id)
+    target_answer_by_entry = build_target_answer_map(target_answers, target_detail)
+
+    matched = []
+    unmatched_source = []
+    for label, source_ans in source_answer_map.items():
+        if label in target_entry_map:
+            target_entry = target_entry_map[label]
+            target_answer_id = target_answer_by_entry.get(target_entry["entry_id"])
+            if target_answer_id:
+                matched.append({
+                    "label": label,
+                    "source_answer": source_ans,
+                    "target_answer_id": target_answer_id,
+                    "target_entry": target_entry,
+                })
+        else:
+            unmatched_source.append((label, source_ans))
+
+    print(f"  Matched: {len(matched)} entries")
+    if unmatched_source:
+        print(f"  Unmatched (source only): {len(unmatched_source)}")
+        for label, ans in unmatched_source:
+            print(f"    - {ans.get('index', '?')}: {label[:60]}")
+
+    # Step 4: Copy answers
+    print(f"\n[4/5] Copying answers...")
+    copied_answers = 0
+    for match in matched:
+        source_ans = match["source_answer"]
+        target_ans_id = match["target_answer_id"]
+        answer_value = source_ans.get("answer")
+
+        if answer_value is not None:
+            patch_data = {"answer": answer_value}
+            if source_ans.get("remarks"):
+                patch_data["remarks"] = source_ans["remarks"]
+            try:
+                api_request(base, org, token, "PATCH", f"/urformanswer/{target_ans_id}/", patch_data)
+                copied_answers += 1
+                idx = match["target_entry"]["index"]
+                print(f"  {idx}: answer = {str(answer_value)[:50]}")
+            except Exception as e:
+                print(f"  ERROR copying answer for {match['target_entry']['index']}: {e}")
+
+    print(f"  Copied {copied_answers} answers")
+
+    # Step 5: Copy files
+    if args.skip_files:
+        print(f"\n[5/5] Skipping file copy (--skip-files)")
+    else:
+        print(f"\n[5/5] Copying files...")
+        copied_files = 0
+        for match in matched:
+            source_ans = match["source_answer"]
+            target_ans_id = match["target_answer_id"]
+            files = source_ans.get("files", [])
+
+            for file_info in files:
+                idx = match["target_entry"]["index"]
+                print(f"  Entry {idx}:")
+                if copy_file_to_answer(base, org, token, target_ans_id, file_info):
+                    copied_files += 1
+
+        print(f"  Copied {copied_files} files")
+
+    # Summary
+    print(f"\n{'='*50}")
+    print(f"DONE")
+    print(f"  Source form:  {args.source_form}")
+    print(f"  Target form:  {target_form_id} ({target_detail.get('code', '?')})")
+    print(f"  URL:          {base}/o/{org}/w/form-{target_form_id}")
+    print(f"  Entries matched: {len(matched)}")
+    print(f"  Answers copied:  {copied_answers}")
+    if not args.skip_files:
+        print(f"  Files copied:    {copied_files}")
+
+
+if __name__ == "__main__":
+    main()
