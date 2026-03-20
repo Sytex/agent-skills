@@ -1,0 +1,8 @@
+{
+  "name": "sytex-blog-publish",
+  "title": "Sytex Blog Publish",
+  "description": "Research competitors, draft and publish Sytex blog posts with EN/ES/PT-BR variants.",
+  "version": "1.0.0",
+  "fields": [],
+  "files": ["SKILL.md"]
+}

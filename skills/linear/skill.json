@@ -1,0 +1,20 @@
+{
+  "name": "linear",
+  "title": "Linear",
+  "description": "Manage issues and projects in Linear",
+  "version": "1.0.0",
+  "setup_instructions": "To connect Linear, you need a Personal API Key from your Linear account.",
+  "fields": [
+    {
+      "name": "api_key",
+      "label": "API Key",
+      "type": "password",
+      "required": true,
+      "env_var": "LINEAR_API_KEY",
+      "help": "1. Click the link below\n2. Enter a label (e.g. 'Claude')\n3. Click 'Create' and copy the key",
+      "help_url": "https://linear.app/sytex/settings/account/security/api-keys/new"
+    }
+  ],
+  "test_command": "me",
+  "files": ["linear", "SKILL.md", "README.md"]
+}

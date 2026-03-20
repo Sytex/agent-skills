@@ -1,0 +1,5 @@
+[
+  {"id": "claude", "name": "Claude Code", "path": "~/.claude/skills"},
+  {"id": "codex", "name": "Codex CLI", "path": "~/.codex/skills"},
+  {"id": "gemini", "name": "Gemini CLI", "path": "~/.gemini/skills"}
+]

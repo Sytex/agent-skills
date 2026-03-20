@@ -1,0 +1,19 @@
+# Environment files with secrets
+.env
+*.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temp files
+*.tmp
+*.log
+__pycache__/
+.DS_Store

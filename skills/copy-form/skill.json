@@ -1,0 +1,8 @@
+{
+  "name": "copy-form",
+  "title": "Copy Form",
+  "description": "Copy/complete form answers and files from one Sytex form to another when the items (entries) are the same or similar.",
+  "version": "1.0.0",
+  "fields": [],
+  "files": ["SKILL.md", "copy-form"]
+}

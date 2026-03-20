@@ -1,0 +1,38 @@
+{
+  "name": "pipedrive",
+  "title": "Pipedrive",
+  "description": "Manage deals, contacts, and sales pipeline in Pipedrive",
+  "version": "2.1.0",
+  "setup_instructions": "To connect Pipedrive, you need OAuth2 credentials from the Pipedrive Developer Hub.",
+  "fields": [
+    {
+      "name": "client_id",
+      "label": "Client ID",
+      "type": "text",
+      "required": true,
+      "env_var": "PIPEDRIVE_CLIENT_ID",
+      "help": "1. Go to Pipedrive Developer Hub\n2. Create a new app\n3. Set Redirect URI to: http://localhost:9876/callback\n4. Copy the Client ID",
+      "help_url": "https://developers.pipedrive.com/"
+    },
+    {
+      "name": "client_secret",
+      "label": "Client Secret",
+      "type": "password",
+      "required": true,
+      "env_var": "PIPEDRIVE_CLIENT_SECRET",
+      "help": "Copy the Client Secret from your Pipedrive app"
+    }
+  ],
+  "oauth": {
+    "auth_url": "https://oauth.pipedrive.com/oauth/authorize",
+    "token_url": "https://oauth.pipedrive.com/oauth/token",
+    "token_mapping": {
+      "access_token": "ACCESS_TOKEN",
+      "refresh_token": "REFRESH_TOKEN",
+      "expires_in": "TOKEN_EXPIRES_IN",
+      "api_domain": "API_DOMAIN"
+    }
+  },
+  "test_command": "status",
+  "files": ["pipedrive", "SKILL.md", "README.md"]
+}

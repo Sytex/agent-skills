@@ -1,0 +1,202 @@
+#!/bin/bash
+# Report Widgets API client
+# Supports two auth modes:
+#   Token auth:  SYTEX_TOKEN in .env
+#   API key:     SYTEX_CLIENT_ID + SYTEX_CLIENT_SECRET in .env
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Parse global flags (first pass to get --instance before sourcing .env)
+INSTANCE=""
+args=()
+raw_args=("$@")
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --instance) INSTANCE="$2"; shift 2 ;;
+        *) args+=("$1"); shift ;;
+    esac
+done
+set -- "${args[@]}"
+
+# Load env: instance-specific if --instance given, otherwise default
+if [[ -n "$INSTANCE" ]]; then
+    ENV_FILE="$SCRIPT_DIR/.env.${INSTANCE}"
+    if [[ ! -f "$ENV_FILE" ]]; then
+        echo "Error: No config for instance '$INSTANCE'. Expected file: $ENV_FILE" && exit 1
+    fi
+    source "$ENV_FILE"
+else
+    source "$SCRIPT_DIR/.env" 2>/dev/null
+fi
+
+BASE_URL="${SYTEX_BASE_URL:-}"
+ORG_ID="${SYTEX_ORG_ID:-}"
+
+# Parse remaining flags (--base-url / --org can still override)
+args2=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --base-url) BASE_URL="$2"; shift 2 ;;
+        --org) ORG_ID="$2"; shift 2 ;;
+        *) args2+=("$1"); shift ;;
+    esac
+done
+set -- "${args2[@]}"
+
+[[ -z "$BASE_URL" ]] && echo "Error: --base-url or SYTEX_BASE_URL required" && exit 1
+[[ -z "$ORG_ID" ]] && echo "Error: --org or SYTEX_ORG_ID required" && exit 1
+
+# --- Auth ---
+
+get_auth_header() {
+    # Token auth (simple)
+    if [[ -n "$SYTEX_TOKEN" ]]; then
+        echo "Token $SYTEX_TOKEN"
+        return
+    fi
+
+    # API key auth (client credentials → JWT)
+    if [[ -n "$SYTEX_CLIENT_ID" && -n "$SYTEX_CLIENT_SECRET" ]]; then
+        # Check cached token
+        local cache_file="$SCRIPT_DIR/.token_cache"
+        if [[ -f "$cache_file" ]]; then
+            local cached_expiry cached_token
+            cached_expiry=$(head -1 "$cache_file")
+            cached_token=$(tail -1 "$cache_file")
+            if [[ $(date +%s) -lt "$cached_expiry" ]]; then
+                echo "Bearer $cached_token"
+                return
+            fi
+        fi
+
+        # Exchange client credentials for JWT via Sytex backend (proxies to Cognito OAuth2)
+        local response
+        response=$(curl -s -X POST "${BASE_URL}/api/auth/token/" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=client_credentials&client_id=${SYTEX_CLIENT_ID}&client_secret=${SYTEX_CLIENT_SECRET}&scope=${SYTEX_OAUTH_SCOPE:-https://app.sytex.io/api/Sytex}")
+
+        local access_token expires_in
+        access_token=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)
+        expires_in=$(echo "$response" | python3 -c "import sys,json; print(json.load(sys.stdin).get('expires_in',0))" 2>/dev/null)
+
+        if [[ -z "$access_token" ]]; then
+            echo "Error: Failed to obtain access token. Response: $response" >&2
+            exit 1
+        fi
+
+        # Cache token (expire 60s early)
+        local expiry=$(( $(date +%s) + expires_in - 60 ))
+        printf '%s\n%s' "$expiry" "$access_token" > "$cache_file"
+        chmod 600 "$cache_file"
+
+        echo "Bearer $access_token"
+        return
+    fi
+
+    echo "Error: No auth configured. Set SYTEX_TOKEN or SYTEX_CLIENT_ID + SYTEX_CLIENT_SECRET in $SCRIPT_DIR/.env" >&2
+    exit 1
+}
+
+AUTH_HEADER=$(get_auth_header)
+
+# --- API calls ---
+
+API="${BASE_URL}/api/reportwidget"
+
+api_call() {
+    local method="$1" endpoint="$2" data="$3"
+    local url="${API}${endpoint}"
+    local cmd=(curl -s -X "$method" "$url"
+        -H "Authorization: $AUTH_HEADER"
+        -H "Organization: $ORG_ID"
+        -H "Accept: application/json")
+
+    if [[ -n "$data" ]]; then
+        cmd+=(-H "Content-Type: application/json" -d "$data")
+    fi
+
+    "${cmd[@]}"
+}
+
+ou_call() {
+    curl -s -X GET "${BASE_URL}/api/operationalunit/" \
+        -H "Authorization: $AUTH_HEADER" \
+        -H "Organization: $ORG_ID" \
+        -H "Accept: application/json"
+}
+
+# --- Commands ---
+
+case "$1" in
+    list)
+        api_call GET "/"
+        ;;
+    get)
+        [[ -z "$2" ]] && echo "Usage: api get <id>" && exit 1
+        api_call GET "/$2/"
+        ;;
+    create)
+        [[ -z "$2" ]] && echo "Usage: api create '<json>'" && exit 1
+        api_call POST "/" "$2"
+        ;;
+    update)
+        [[ -z "$2" || -z "$3" ]] && echo "Usage: api update <id> '<json>'" && exit 1
+        api_call PATCH "/$2/" "$3"
+        ;;
+    delete)
+        [[ -z "$2" ]] && echo "Usage: api delete <id>" && exit 1
+        api_call DELETE "/$2/"
+        ;;
+    preview)
+        [[ -z "$2" ]] && echo "Usage: api preview '<json>'" && exit 1
+        api_call POST "/preview/" "$2"
+        ;;
+    data)
+        [[ -z "$2" ]] && echo "Usage: api data <id> ['<json>']" && exit 1
+        api_call POST "/$2/data/" "${3:-{\}}"
+        ;;
+    schema)
+        api_call GET "/definition_schema/"
+        ;;
+    column-values)
+        [[ -z "$2" || -z "$3" ]] && echo "Usage: api column-values <entity_type> <column>" && exit 1
+        api_call GET "/column_values/?entity_type=$2&column=$3"
+        ;;
+    ous)
+        ou_call
+        ;;
+    *)
+        cat <<'USAGE'
+Report Widgets API
+
+Commands:
+  list                          List all widgets
+  get <id>                      Get widget details
+  create '<json>'               Create a widget
+  update <id> '<json>'          Update a widget (partial)
+  delete <id>                   Delete a widget
+  preview '<json>'              Preview a definition
+  data <id> ['<json>']          Get widget data (with optional filters)
+  schema                        Get definition schema
+  column-values <entity> <col>  Get distinct values for a column
+  ous                           List operational units
+
+Flags:
+  --instance <name>             Load config from .env.<name> (e.g. --instance app_eu)
+  --base-url <url>              Sytex instance URL (or SYTEX_BASE_URL env)
+  --org <id>                    Organization ID (or SYTEX_ORG_ID env)
+
+Auth (configure in .env):
+  Token:    SYTEX_TOKEN=<token>
+  API key:  SYTEX_CLIENT_ID=<id>
+            SYTEX_CLIENT_SECRET=<secret>
+
+Examples:
+  api list
+  api schema
+  api column-values tasks task_status
+  api preview '{"definition": {...}}'
+  api create '{"name": "My Widget", "operational_units": ["<ou-id>"], "definition": {...}}'
+USAGE
+        ;;
+esac

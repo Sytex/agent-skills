@@ -1,0 +1,11 @@
+{
+  "name": "linear-bulk",
+  "title": "Linear Bulk Creator",
+  "description": "Bulk-create Linear issues from a JSON file with assignee, label, priority, and parent issue support",
+  "version": "1.0.0",
+  "setup_instructions": "This skill reuses the Linear API key configured in the 'linear' skill. No additional setup needed.",
+  "fields": [],
+  "dependencies": ["linear"],
+  "test_command": null,
+  "files": ["bulk-create", "SKILL.md"]
+}

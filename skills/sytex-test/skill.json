@@ -1,0 +1,8 @@
+{
+  "name": "sytex-test",
+  "title": "Sytex Test Runner",
+  "description": "Run Sytex backend tests (unit and integration).",
+  "version": "1.0.0",
+  "fields": [],
+  "files": ["SKILL.md"]
+}

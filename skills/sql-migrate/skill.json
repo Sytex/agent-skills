@@ -1,0 +1,9 @@
+{
+  "name": "sql-migrate",
+  "title": "SQL Migrate",
+  "description": "Generate raw SQL files from Django migrations for deployment reference",
+  "version": "1.0.0",
+  "setup_instructions": "Requires Docker running with the sytex service. Start with `docker compose up -d`.",
+  "fields": [],
+  "files": ["skill.md"]
+}

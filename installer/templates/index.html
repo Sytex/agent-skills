@@ -1,0 +1,2083 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Skills Installer</title>
+    <style>
+        :root {
+            --bg: #0a0a0a;
+            --bg-card: #141414;
+            --bg-hover: #1a1a1a;
+            --border: #2a2a2a;
+            --text: #e5e5e5;
+            --text-dim: #888;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --green: #22c55e;
+            --yellow: #eab308;
+            --red: #ef4444;
+            --cyan: #06b6d4;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .main-layout {
+            display: grid;
+            grid-template-columns: 1fr 280px;
+            gap: 2rem;
+        }
+
+        @media (max-width: 900px) {
+            .main-layout {
+                grid-template-columns: 1fr;
+            }
+            .right-panel {
+                order: -1;
+            }
+        }
+
+        .right-panel {
+            position: sticky;
+            top: 2rem;
+            align-self: start;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+
+        header h1 {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        header p {
+            color: var(--text-dim);
+        }
+
+        .skills-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.25rem;
+        }
+
+        .skill-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .skill-card:hover {
+            background: var(--bg-hover);
+            border-color: var(--accent);
+        }
+
+        .skill-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.75rem;
+        }
+
+        .skill-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .skill-badge {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-weight: 500;
+        }
+
+        .badge-not-installed {
+            background: rgba(100, 100, 100, 0.2);
+            color: #888;
+        }
+
+        .badge-installed {
+            background: rgba(249, 115, 22, 0.15);
+            color: #f97316;
+        }
+
+        .badge-configured {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--green);
+        }
+
+        .badge-outdated {
+            background: rgba(234, 179, 8, 0.15);
+            color: var(--yellow);
+        }
+
+        .skill-description {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+
+        .skill-meta {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            padding: 2rem;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            width: 100%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow: auto;
+        }
+
+        .modal-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0.5rem;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            color: var(--text);
+        }
+
+        .modal-body {
+            padding: 1.5rem;
+        }
+
+        .modal-footer {
+            padding: 1.5rem;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 1rem;
+            justify-content: flex-end;
+        }
+
+        /* Alerts */
+        .alert {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            font-size: 0.9rem;
+        }
+
+        .alert-info {
+            background: rgba(59, 130, 246, 0.15);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: var(--accent);
+        }
+
+        .alert-success {
+            background: rgba(34, 197, 94, 0.15);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: var(--green);
+        }
+
+        .alert-error {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: var(--red);
+        }
+
+        /* Form */
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+
+        .form-label .required {
+            color: var(--red);
+            margin-left: 0.25rem;
+        }
+
+        .form-help {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            margin-bottom: 0.5rem;
+            white-space: pre-line;
+        }
+
+        .form-help a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .form-help a:hover {
+            text-decoration: underline;
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            font-size: 1rem;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .form-input::placeholder {
+            color: var(--text-dim);
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+        }
+
+        .btn-secondary {
+            background: var(--bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-hover);
+        }
+
+        .btn-danger {
+            background: var(--red);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Actions */
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .actions .btn {
+            padding: 0.5rem 1rem;
+            font-size: 0.85rem;
+        }
+
+        /* Info list */
+        .info-list {
+            margin-bottom: 1.5rem;
+        }
+
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.9rem;
+        }
+
+        .info-item:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            color: var(--text-dim);
+        }
+
+        .info-value {
+            font-weight: 500;
+        }
+
+        /* Test output */
+        .test-output {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            font-family: monospace;
+            font-size: 0.85rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 300px;
+            overflow: auto;
+        }
+
+        /* Providers bar */
+        .providers-bar {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+
+        .providers-bar-label {
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            margin-right: 0.5rem;
+        }
+
+        .provider-chip {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.35rem 0.75rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            font-size: 0.8rem;
+            color: var(--text);
+        }
+
+        .add-provider-btn {
+            padding: 0.35rem 0.75rem;
+            background: none;
+            border: 1px dashed var(--border);
+            border-radius: 999px;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+
+        .add-provider-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .no-providers-warning {
+            background: rgba(234, 179, 8, 0.15);
+            border: 1px solid rgba(234, 179, 8, 0.3);
+            color: var(--yellow);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+
+        /* Provider badges on skill cards */
+        .skill-providers {
+            display: flex;
+            gap: 0.35rem;
+            margin-top: 0.75rem;
+            flex-wrap: wrap;
+        }
+
+        .provider-badge {
+            font-size: 0.65rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+
+        .provider-badge.installed {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--green);
+        }
+
+        .provider-badge.outdated {
+            background: rgba(234, 179, 8, 0.15);
+            color: var(--yellow);
+        }
+
+        .provider-badge.not-installed {
+            background: rgba(100, 100, 100, 0.15);
+            color: #666;
+        }
+
+        /* Provider toggles in modal */
+        .provider-toggles {
+            margin-bottom: 1.5rem;
+        }
+
+        .provider-toggles-label {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            margin-bottom: 0.75rem;
+        }
+
+        .provider-toggle {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+        }
+
+        .provider-toggle-info {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .provider-toggle-name {
+            font-weight: 500;
+        }
+
+        .provider-toggle-status {
+            font-size: 0.75rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+        }
+
+        .provider-toggle-status.installed {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--green);
+        }
+
+        .provider-toggle-status.outdated {
+            background: rgba(234, 179, 8, 0.15);
+            color: var(--yellow);
+        }
+
+        .provider-toggle-status.not-installed {
+            background: rgba(100, 100, 100, 0.15);
+            color: #888;
+        }
+
+        .provider-toggle-btn {
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            border: none;
+            font-weight: 500;
+        }
+
+        .provider-toggle-btn.install {
+            background: var(--accent);
+            color: white;
+        }
+
+        .provider-toggle-btn.install:hover {
+            background: var(--accent-hover);
+        }
+
+        .provider-toggle-btn.uninstall {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+        }
+
+        .provider-toggle-btn.uninstall:hover {
+            border-color: var(--red);
+            color: var(--red);
+        }
+
+        .provider-toggle-btn.update {
+            background: #ca8a04;
+            color: white;
+        }
+
+        /* Header with update button */
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .header-title {
+            font-size: 2rem;
+            font-weight: 600;
+        }
+
+        .update-btn {
+            padding: 0.5rem 1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .update-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .update-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .update-btn .icon {
+            font-size: 1rem;
+        }
+
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 500;
+            animation: slideIn 0.3s ease;
+            z-index: 200;
+        }
+
+        .toast-success {
+            background: var(--green);
+            color: white;
+        }
+
+        .toast-error {
+            background: var(--red);
+            color: white;
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        /* Loading */
+        .loading {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+            border: 2px solid transparent;
+            border-top-color: currentColor;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* List field styles */
+        .list-field {
+            margin-bottom: 1.5rem;
+        }
+
+        .list-items {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .list-item {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .list-item-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .list-item-title {
+            font-weight: 500;
+            color: var(--accent);
+        }
+
+        .list-item-remove {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 1.25rem;
+            padding: 0.25rem;
+            line-height: 1;
+        }
+
+        .list-item-remove:hover {
+            color: var(--red);
+        }
+
+        .list-item-fields {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .list-item-field {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .list-item-field label {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+        }
+
+        .list-item-field input {
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+
+        .list-item-field input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .add-item-btn {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1rem;
+            background: none;
+            border: 1px dashed var(--border);
+            border-radius: 8px;
+            color: var(--text-dim);
+            cursor: pointer;
+            width: 100%;
+            justify-content: center;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+
+        .add-item-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .list-empty {
+            text-align: center;
+            padding: 1.5rem;
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+
+        /* Dependencies section */
+        .dependencies-section {
+            margin-bottom: 1.5rem;
+            padding: 1rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+        }
+
+        .dependencies-title {
+            font-weight: 500;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .dependencies-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .dependency-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-card);
+            border-radius: 6px;
+        }
+
+        .dependency-name {
+            font-size: 0.9rem;
+        }
+
+        .dependency-status {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .dependency-badge {
+            font-size: 0.75rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+
+        .dependency-badge.installed {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--green);
+        }
+
+        .dependency-badge.missing {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--red);
+        }
+
+        .dependency-cmd {
+            font-family: monospace;
+            font-size: 0.8rem;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg);
+            border-radius: 4px;
+            margin-top: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+        }
+
+        .dependency-cmd code {
+            color: var(--cyan);
+        }
+
+        .copy-btn {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.75rem;
+        }
+
+        .copy-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        /* Provider management section */
+        .providers-section {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.25rem;
+        }
+
+        .providers-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .providers-section-title {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .providers-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .provider-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.6rem 0.75rem;
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+
+        .provider-item-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .provider-item-name {
+            font-weight: 500;
+        }
+
+        .provider-item-custom {
+            font-size: 0.65rem;
+            padding: 0.1rem 0.35rem;
+            border-radius: 4px;
+            background: rgba(6, 182, 212, 0.15);
+            color: var(--cyan);
+            text-transform: uppercase;
+        }
+
+        .provider-item-remove {
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 0.25rem;
+            color: var(--text-dim);
+            font-size: 1rem;
+            line-height: 1;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .provider-item:hover .provider-item-remove {
+            opacity: 1;
+        }
+
+        .provider-item-remove:hover {
+            color: var(--red);
+        }
+
+        .add-provider-chip {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.35rem;
+            padding: 0.6rem 0.75rem;
+            background: none;
+            border: 1px dashed var(--border);
+            border-radius: 8px;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
+
+        .add-provider-chip:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <h1 class="header-title">Agent Skills Installer</h1>
+                <button class="update-btn" onclick="updateRepo()" id="update-btn" style="display:none">
+                    Download last changes
+                </button>
+            </div>
+        </header>
+
+        <div class="main-layout">
+            <div class="skills-grid" id="skills-grid">
+                <!-- Skills loaded dynamically -->
+            </div>
+
+            <div class="right-panel">
+                <div class="providers-section" id="providers-section">
+                    <div class="providers-section-header">
+                        <span class="providers-section-title">Providers</span>
+                    </div>
+                    <div class="providers-list" id="providers-list">
+                        <!-- Providers loaded dynamically -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Skill Modal -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal" id="modal">
+            <div class="modal-header">
+                <h2 id="modal-title">Skill</h2>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- Content loaded dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Provider Modal -->
+    <div class="modal-overlay" id="provider-modal-overlay">
+        <div class="modal" style="max-width:450px">
+            <div class="modal-header">
+                <h2>Add Custom Provider</h2>
+                <button class="modal-close" onclick="closeProviderModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="color:var(--text-dim);margin-bottom:1.5rem">Add a custom AI coding agent to install skills to.</p>
+                <form id="provider-form">
+                    <div class="form-group">
+                        <label class="form-label">Provider ID <span class="required">*</span></label>
+                        <div class="form-help">Lowercase identifier (e.g., cursor, windsurf, aider)</div>
+                        <input type="text" class="form-input" name="id" required pattern="[a-z0-9-]+" placeholder="cursor" oninput="updatePathPlaceholder(this.value)">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Install Path <span class="required">*</span></label>
+                        <div class="form-help">Directory where skills will be installed</div>
+                        <input type="text" class="form-input" name="path" id="provider-path-input" required placeholder="~/.cursor/skills">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeProviderModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="addProvider()">Add Provider</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = '/api';
+        let skills = [];
+        let providers = [];
+        let currentSkill = null;
+
+        // Load providers
+        async function loadProviders() {
+            const response = await fetch(`${API}/providers`);
+            providers = await response.json();
+            renderProviders();
+        }
+
+        // Render providers section
+        function renderProviders() {
+            const list = document.getElementById('providers-list');
+
+            let html = providers.map(p => {
+                const customBadge = p.custom ? '<span class="provider-item-custom">custom</span>' : '';
+                const removeBtn = p.custom ? `<button class="provider-item-remove" onclick="event.stopPropagation(); removeProvider('${p.id}')" title="Remove">×</button>` : '';
+
+                return `
+                    <div class="provider-item">
+                        <div class="provider-item-info">
+                            <span class="provider-item-name">${escapeHtml(p.name)}</span>
+                            ${customBadge}
+                        </div>
+                        ${removeBtn}
+                    </div>
+                `;
+            }).join('');
+
+            html += `<button class="add-provider-chip" onclick="openProviderModal()">+ Add</button>`;
+
+            list.innerHTML = html;
+        }
+
+        // Open add provider modal
+        function openProviderModal() {
+            document.getElementById('provider-form').reset();
+            document.getElementById('provider-modal-overlay').classList.add('active');
+        }
+
+        // Close add provider modal
+        function closeProviderModal() {
+            document.getElementById('provider-modal-overlay').classList.remove('active');
+        }
+
+        // Update path placeholder based on ID input
+        function updatePathPlaceholder(id) {
+            const pathInput = document.getElementById('provider-path-input');
+            if (id) {
+                pathInput.placeholder = `~/.${id}/skills`;
+            } else {
+                pathInput.placeholder = '~/.cursor/skills';
+            }
+        }
+
+        // Add custom provider
+        async function addProvider() {
+            const form = document.getElementById('provider-form');
+            const formData = new FormData(form);
+
+            const id = formData.get('id').trim().toLowerCase().replace(/\s+/g, '-');
+            let path = formData.get('path').trim();
+
+            if (!id || !path) {
+                showToast('All fields are required', 'error');
+                return;
+            }
+
+            // Expand ~ to home directory hint (server will handle actual expansion)
+            if (!path.startsWith('~') && !path.startsWith('/')) {
+                path = '~/' + path;
+            }
+
+            const response = await fetch(`${API}/providers/add`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, name: id, path })
+            }).catch(() => null);
+
+            if (!response) {
+                showToast('Connection failed', 'error');
+                return;
+            }
+
+            const result = await response.json().catch(() => ({ error: 'Unknown error' }));
+
+            if (!response.ok || result.error) {
+                showToast(result.error || 'Failed to add provider', 'error');
+                return;
+            }
+
+            closeProviderModal();
+            showToast(`Added provider: ${id}`);
+            await loadProviders();
+            await loadSkills();
+        }
+
+        // Remove custom provider
+        async function removeProvider(providerId) {
+            const provider = providers.find(p => p.id === providerId);
+            if (!confirm(`Remove provider "${provider?.name || providerId}"?`)) return;
+
+            const response = await fetch(`${API}/providers/${providerId}`, {
+                method: 'DELETE'
+            }).catch(() => null);
+
+            if (!response || !response.ok) {
+                const result = response ? await response.json().catch(() => ({})) : {};
+                showToast(result.error || 'Failed to remove provider', 'error');
+                return;
+            }
+
+            showToast('Provider removed');
+            await loadProviders();
+            await loadSkills();
+        }
+
+        // Close provider modal on overlay click
+        document.getElementById('provider-modal-overlay').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) closeProviderModal();
+        });
+
+        // Check for updates
+        async function checkForUpdates() {
+            const btn = document.getElementById('update-btn');
+            const response = await fetch(`${API}/check-updates`).catch(() => null);
+            if (!response) return;
+
+            const result = await response.json().catch(() => null);
+            if (!result) return;
+
+            btn.style.display = result.has_updates ? 'flex' : 'none';
+        }
+
+        // Update repo (git pull)
+        async function updateRepo() {
+            const btn = document.getElementById('update-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span> Downloading...';
+
+            const response = await fetch(`${API}/update`, { method: 'POST' }).catch(() => null);
+
+            if (!response) {
+                btn.disabled = false;
+                btn.innerHTML = 'Download last changes';
+                showToast('Could not connect to server', 'error');
+                return;
+            }
+
+            const result = await response.json().catch(() => ({ success: false, error: 'Failed to download changes' }));
+
+            btn.disabled = false;
+            btn.innerHTML = 'Download last changes';
+
+            if (result.success) {
+                showToast(result.message || 'Skills updated');
+                btn.style.display = 'none';
+                await loadSkills();
+            } else {
+                showToast(result.error, 'error');
+            }
+        }
+
+        // Load skills
+        async function loadSkills() {
+            const response = await fetch(`${API}/skills`);
+            skills = await response.json();
+            renderSkills();
+        }
+
+        // Get short provider name
+        function shortProviderName(providerId) {
+            const provider = providers.find(p => p.id === providerId);
+            if (provider && provider.name) {
+                // Return first word of name (e.g., "Claude" from "Claude Code")
+                return provider.name.split(' ')[0];
+            }
+            // Fallback for known defaults
+            switch(providerId) {
+                case 'claude': return 'Claude';
+                case 'codex': return 'Codex';
+                case 'gemini': return 'Gemini';
+                default: return providerId;
+            }
+        }
+
+        // Render provider badges for a skill
+        function renderProviderBadges(skill) {
+            const allProviders = providers;
+            if (allProviders.length === 0) return '';
+
+            const badges = allProviders.map(p => {
+                const status = skill.provider_status?.[p.id] || 'not_installed';
+                const cssClass = status === 'configured' || status === 'installed' ? 'installed' : status.replace('_', '-');
+                return `<span class="provider-badge ${cssClass}">${shortProviderName(p.id)}</span>`;
+            }).join('');
+
+            return `<div class="skill-providers">${badges}</div>`;
+        }
+
+        // Render skills grid
+        function renderSkills() {
+            const grid = document.getElementById('skills-grid');
+            grid.innerHTML = skills.map(skill => `
+                <div class="skill-card" onclick="openSkill('${skill.id}')">
+                    <div class="skill-header">
+                        <span class="skill-title">${skill.title}</span>
+                        <span class="skill-badge badge-${skill.status.replace('_', '-')}">${formatStatus(skill.status)}</span>
+                    </div>
+                    <div class="skill-description">${skill.description}</div>
+                    <div class="skill-meta">v${skill.version}</div>
+                    ${renderProviderBadges(skill)}
+                </div>
+            `).join('');
+        }
+
+        // Format status
+        function formatStatus(status) {
+            switch (status) {
+                case 'not_installed': return 'Not Installed';
+                case 'installed': return 'Needs Config';
+                case 'configured': return 'Ready';
+                case 'outdated': return 'Update Available';
+                default: return status;
+            }
+        }
+
+        // Open skill modal
+        async function openSkill(skillId) {
+            const response = await fetch(`${API}/skills/${skillId}`);
+            currentSkill = await response.json();
+            renderModal();
+            document.getElementById('modal-overlay').classList.add('active');
+        }
+
+        // Close modal
+        function closeModal() {
+            document.getElementById('modal-overlay').classList.remove('active');
+            currentSkill = null;
+        }
+
+        // Close on overlay click
+        document.getElementById('modal-overlay').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) closeModal();
+        });
+
+        // Close on Escape
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+
+        // Render provider toggles section
+        function renderProviderToggles(skill) {
+            const allProviders = providers;
+            if (allProviders.length === 0) return '';
+
+            let html = '<div class="provider-toggles">';
+            html += '<div class="provider-toggles-label">Install in:</div>';
+
+            for (const p of allProviders) {
+                const status = skill.provider_status?.[p.id] || 'not_installed';
+                const statusLabel = status === 'installed' || status === 'configured' ? 'Installed' : status === 'outdated' ? 'Update available' : 'Not installed';
+                const statusClass = status === 'configured' ? 'installed' : status.replace('_', '-');
+
+                let btnHtml = '';
+                if (status === 'not_installed') {
+                    btnHtml = `<button class="provider-toggle-btn install" onclick="installToProvider('${p.id}')">Install</button>`;
+                } else if (status === 'outdated') {
+                    btnHtml = `<button class="provider-toggle-btn update" onclick="updateInProvider('${p.id}')">Update</button>`;
+                } else {
+                    btnHtml = `<button class="provider-toggle-btn uninstall" onclick="uninstallFromProvider('${p.id}')">Remove</button>`;
+                }
+
+                html += `
+                    <div class="provider-toggle">
+                        <div class="provider-toggle-info">
+                            <span class="provider-toggle-name">${p.name}</span>
+                            <span class="provider-toggle-status ${statusClass}">${statusLabel}</span>
+                        </div>
+                        ${btnHtml}
+                    </div>
+                `;
+            }
+
+            html += '</div>';
+            return html;
+        }
+
+        // Render dependencies section
+        function renderDependencies(skill) {
+            const deps = skill.dependencies_status;
+            if (!deps || !deps.has_dependencies) return '';
+
+            let html = '<div class="dependencies-section">';
+            html += '<div class="dependencies-title">';
+            html += deps.all_installed
+                ? '<span style="color:var(--green)">✓</span> Dependencies'
+                : '<span style="color:var(--yellow)">⚠</span> Dependencies';
+            html += '</div>';
+
+            html += '<div class="dependencies-list">';
+            for (const dep of deps.dependencies) {
+                html += '<div class="dependency-item">';
+                html += `<span class="dependency-name">${escapeHtml(dep.name)}</span>`;
+                html += '<div class="dependency-status">';
+                if (dep.installed) {
+                    html += '<span class="dependency-badge installed">Installed</span>';
+                } else {
+                    html += '<span class="dependency-badge missing">Missing</span>';
+                }
+                html += '</div>';
+                html += '</div>';
+
+                if (!dep.installed && dep.install_command) {
+                    html += '<div class="dependency-cmd">';
+                    html += `<code>${escapeHtml(dep.install_command)}</code>`;
+                    html += `<button class="copy-btn" onclick="copyToClipboard('${escapeHtml(dep.install_command)}')">Copy</button>`;
+                    html += '</div>';
+                }
+            }
+            html += '</div>';
+            html += '</div>';
+
+            return html;
+        }
+
+        // Copy to clipboard
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showToast('Copied to clipboard');
+            }).catch(() => {
+                showToast('Failed to copy', 'error');
+            });
+        }
+
+        // Render modal content
+        function renderModal() {
+            const skill = currentSkill;
+            document.getElementById('modal-title').innerHTML = skill.title;
+
+            let html = '';
+            html += `<p style="color:var(--text-dim);margin-bottom:1.5rem">${skill.description}</p>`;
+
+            // Show dependencies if any are missing
+            html += renderDependencies(skill);
+
+            // Always show provider toggles
+            html += renderProviderToggles(skill);
+
+            const hasFields = (skill.fields || []).length > 0;
+            const isInstalledAnywhere = Object.values(skill.provider_status || {}).some(s => s !== 'not_installed');
+
+            // Show config form only if installed somewhere and has fields
+            if (isInstalledAnywhere && hasFields) {
+                const needsConfig = !skill.config || Object.keys(skill.config).length === 0;
+                const hasOAuth = !!skill.oauth;
+                const hasItemOAuth = (skill.fields || []).some(f => f.item_oauth);
+
+                html += `<div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border)">`;
+
+                // Show redirect URI notice if skill has per-account OAuth
+                if (hasItemOAuth) {
+                    html += `<div class="alert alert-info" style="margin-bottom:1rem">
+                        <strong>Redirect URI:</strong> <code style="background:var(--bg);padding:0.2rem 0.5rem;border-radius:4px">http://localhost:9876/callback</code>
+                        <br><span style="font-size:0.85rem;opacity:0.8">Configure this in your Google Cloud Console OAuth settings</span>
+                    </div>`;
+                }
+
+                if (hasOAuth) {
+                    // OAuth flow
+                    const isAuthorized = skill.config?.access_token || Object.keys(skill.config || {}).some(k => k.toLowerCase().includes('access_token'));
+                    html += `<p style="color:var(--text-dim);margin-bottom:1rem">${isAuthorized ? 'Connected. Re-authorize to update:' : 'Connect your account:'}</p>`;
+
+                    // Show redirect URI notice
+                    html += `<div class="alert alert-info" style="margin-bottom:1rem">
+                        <strong>Redirect URI:</strong> <code style="background:var(--bg);padding:0.2rem 0.5rem;border-radius:4px">http://localhost:9876/callback</code>
+                        <br><span style="font-size:0.85rem;opacity:0.8">Configure this in your ${skill.title} app settings</span>
+                    </div>`;
+
+                    html += '<form id="oauth-form">';
+
+                    // Only show client_id and client_secret fields for OAuth
+                    for (const field of skill.fields || []) {
+                        if (!field.env_var?.includes('CLIENT_ID') && !field.env_var?.includes('CLIENT_SECRET')) continue;
+
+                        const value = skill.config?.[field.name] || field.default || '';
+                        const isPassword = field.type === 'password';
+
+                        html += `<div class="form-group">`;
+                        html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">`;
+                        html += `<label class="form-label" style="margin:0">${field.label} ${field.required ? '<span class="required">*</span>' : ''}</label>`;
+                        if (field.help || field.help_url) {
+                            html += `<button type="button" onclick="this.parentElement.nextElementSibling.open=!this.parentElement.nextElementSibling.open" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:0.85rem">How do I get this?</button>`;
+                        }
+                        html += `</div>`;
+
+                        if (field.help || field.help_url) {
+                            html += `<details class="field-help">`;
+                            html += `<summary style="display:none"></summary>`;
+                            html += `<div class="form-help" style="margin-bottom:0.75rem;padding:0.75rem;background:var(--bg);border-radius:6px">`;
+                            if (field.help) html += field.help;
+                            if (field.help_url) html += `<br><a href="${field.help_url}" target="_blank" style="display:inline-block;margin-top:0.5rem">Open ${skill.title} settings ↗</a>`;
+                            html += `</div></details>`;
+                        }
+
+                        html += `<input
+                            type="${isPassword ? 'password' : 'text'}"
+                            class="form-input"
+                            name="${field.name}"
+                            value="${isPassword && value ? '' : escapeHtml(value)}"
+                            placeholder="${isPassword && value ? '••••••••••••••••' : ''}"
+                            ${field.required ? 'required' : ''}
+                        >`;
+                        html += `</div>`;
+                    }
+                    html += '</form>';
+
+                    html += '<div id="oauth-status" style="display:none;margin:1rem 0;padding:1rem;background:var(--bg);border-radius:8px;text-align:center;"></div>';
+
+                    html += '<div id="test-output-container" style="display:none;margin-top:1rem;"><div class="test-output" id="test-output"></div></div>';
+
+                    html += '<div class="actions" style="margin-top:1rem">';
+                    html += `<button class="btn btn-primary" id="oauth-btn" onclick="startOAuth()">${isAuthorized ? 'Re-authorize' : 'Authorize'} ${skill.title}</button>`;
+                    html += '<button class="btn btn-secondary" onclick="testSkill()">Test</button>';
+                    html += '</div>';
+                } else {
+                    // Regular config form
+                    const actionText = needsConfig ? 'Configure credentials:' : 'Update credentials:';
+                    html += `<p style="color:var(--text-dim);margin-bottom:1rem">${actionText}</p>`;
+
+                    html += '<form id="config-form">';
+
+                    for (const field of skill.fields || []) {
+                        // Handle list type fields
+                        if (field.type === 'list') {
+                            html += renderListField(field, skill.config?.[field.name] || []);
+                            continue;
+                        }
+
+                        const value = skill.config?.[field.name] || field.default || '';
+                        const isPassword = field.type === 'password';
+
+                        html += `<div class="form-group">`;
+
+                        html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem">`;
+                        html += `<label class="form-label" style="margin:0">${field.label} ${field.required ? '<span class="required">*</span>' : ''}</label>`;
+                        if (field.help || field.help_url) {
+                            html += `<button type="button" onclick="this.parentElement.nextElementSibling.open=!this.parentElement.nextElementSibling.open" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:0.85rem">How do I get this?</button>`;
+                        }
+                        html += `</div>`;
+
+                        if (field.help || field.help_url) {
+                            html += `<details class="field-help">`;
+                            html += `<summary style="display:none"></summary>`;
+                            html += `<div class="form-help" style="margin-bottom:0.75rem;padding:0.75rem;background:var(--bg);border-radius:6px">`;
+                            if (field.help) html += field.help;
+                            if (field.help_url) html += `<br><a href="${field.help_url}" target="_blank" style="display:inline-block;margin-top:0.5rem">Open ${skill.title} settings ↗</a>`;
+                            html += `</div></details>`;
+                        }
+
+                        html += `<input
+                            type="${isPassword ? 'password' : 'text'}"
+                            class="form-input"
+                            name="${field.name}"
+                            value="${isPassword && value ? '' : escapeHtml(value)}"
+                            placeholder="${isPassword && value ? '••••••••••••••••' : ''}"
+                            ${field.required ? 'required' : ''}
+                        >`;
+
+                        html += `</div>`;
+                    }
+                    html += '</form>';
+
+                    html += '<div id="test-output-container" style="display:none;margin-top:1rem;"><div class="test-output" id="test-output"></div></div>';
+
+                    html += '<div class="actions" style="margin-top:1rem">';
+                    html += '<button class="btn btn-primary" onclick="saveConfig()">Save</button>';
+                    html += '<button class="btn btn-secondary" onclick="testSkill()">Test</button>';
+                    html += '</div>';
+                }
+
+                html += '</div>';
+            }
+
+            document.getElementById('modal-body').innerHTML = html;
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Render a list-type field (e.g., multiple organizations)
+        function renderListField(field, items) {
+            const fieldName = field.name;
+            const itemFields = field.item_fields || [];
+            const hasItemOAuth = !!field.item_oauth;
+
+            let html = `<div class="list-field" data-field-name="${fieldName}" data-has-oauth="${hasItemOAuth}">`;
+            html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">`;
+            html += `<label class="form-label" style="margin:0">${field.label} ${field.required ? '<span class="required">*</span>' : ''}</label>`;
+            html += `</div>`;
+
+            if (field.help) {
+                html += `<div class="form-help" style="margin-bottom:0.75rem">${field.help}</div>`;
+            }
+
+            html += `<div class="list-items" id="list-items-${fieldName}">`;
+
+            if (items.length === 0) {
+                html += `<div class="list-empty">No items configured. Click "Add" to add one.</div>`;
+            } else {
+                for (let i = 0; i < items.length; i++) {
+                    html += renderListItem(fieldName, itemFields, items[i], i, hasItemOAuth);
+                }
+            }
+
+            html += `</div>`;
+
+            if (hasItemOAuth) {
+                html += `<button type="button" class="add-item-btn" onclick="addOAuthAccount('${fieldName}')">+ Add ${field.label.replace(/s$/, '')}</button>`;
+            } else {
+                html += `<button type="button" class="add-item-btn" onclick="addListItem('${fieldName}')">+ Add ${field.label.replace(/s$/, '')}</button>`;
+            }
+            html += `</div>`;
+
+            return html;
+        }
+
+        // Render a single item in a list field
+        function renderListItem(fieldName, itemFields, item, index, hasItemOAuth = false) {
+            const slug = item.slug || `Item ${index + 1}`;
+            const isAuthorized = hasItemOAuth && (item.access_token || item.refresh_token);
+
+            let html = `<div class="list-item" data-index="${index}" data-slug="${escapeHtml(slug)}">`;
+            html += `<div class="list-item-header">`;
+            html += `<span class="list-item-title">${escapeHtml(slug)}`;
+            if (hasItemOAuth) {
+                if (isAuthorized) {
+                    html += ` <span style="color:var(--green);font-size:0.8rem">✓ authorized</span>`;
+                } else {
+                    html += ` <span style="color:var(--yellow);font-size:0.8rem">⚠ pending auth</span>`;
+                }
+            }
+            html += `</span>`;
+            html += `<div style="display:flex;gap:0.5rem;align-items:center">`;
+            if (hasItemOAuth) {
+                html += `<button type="button" style="background:var(--accent);color:white;border:none;padding:0.25rem 0.5rem;border-radius:4px;font-size:0.75rem;cursor:pointer" onclick="authorizeAccount('${fieldName}', '${escapeHtml(slug)}')">${isAuthorized ? 'Re-auth' : 'Authorize'}</button>`;
+            }
+            html += `<button type="button" class="list-item-remove" onclick="removeListItem('${fieldName}', ${index})" title="Remove">×</button>`;
+            html += `</div>`;
+            html += `</div>`;
+
+            html += `<div class="list-item-fields">`;
+
+            for (const itemField of itemFields) {
+                const value = item[itemField.name] || itemField.default || '';
+                const isPassword = itemField.type === 'password';
+                const inputType = isPassword ? 'password' : 'text';
+                const displayValue = isPassword && value ? '' : escapeHtml(value);
+                const placeholder = isPassword && value ? '••••••••••••••••' : (itemField.help || '');
+
+                html += `<div class="list-item-field">`;
+                html += `<label>${itemField.label}${itemField.required ? ' *' : ''}</label>`;
+                html += `<input type="${inputType}" name="${fieldName}[${index}][${itemField.name}]" value="${displayValue}" placeholder="${escapeHtml(placeholder)}" ${itemField.required ? 'required' : ''}>`;
+                html += `</div>`;
+            }
+
+            html += `</div>`;
+            html += `</div>`;
+
+            return html;
+        }
+
+        // Add a new item to a list field
+        function addListItem(fieldName) {
+            const field = currentSkill.fields.find(f => f.name === fieldName);
+            if (!field) return;
+
+            const container = document.getElementById(`list-items-${fieldName}`);
+
+            // Remove empty message if present
+            const emptyMsg = container.querySelector('.list-empty');
+            if (emptyMsg) emptyMsg.remove();
+
+            const index = container.querySelectorAll('.list-item').length;
+            const newItem = {};
+
+            // Set defaults
+            for (const itemField of field.item_fields || []) {
+                newItem[itemField.name] = itemField.default || '';
+            }
+
+            const html = renderListItem(fieldName, field.item_fields || [], newItem, index, !!field.item_oauth);
+            container.insertAdjacentHTML('beforeend', html);
+
+            // Focus first input of new item
+            const newItemEl = container.lastElementChild;
+            const firstInput = newItemEl.querySelector('input');
+            if (firstInput) firstInput.focus();
+        }
+
+        // Add a new OAuth account (inline input then authorizes)
+        async function addOAuthAccount(fieldName) {
+            const field = currentSkill.fields.find(f => f.name === fieldName);
+            if (!field || !field.item_oauth) return;
+
+            const container = document.getElementById(`list-items-${fieldName}`);
+
+            // Check if there's already an input form
+            if (container.querySelector('.new-account-form')) return;
+
+            // Remove empty message if present
+            const emptyMsg = container.querySelector('.list-empty');
+            if (emptyMsg) emptyMsg.remove();
+
+            // Add inline input form
+            const formHtml = `
+                <div class="list-item new-account-form" style="border-color:var(--accent)">
+                    <div class="list-item-fields">
+                        <div class="list-item-field">
+                            <label>Account Name <span style="color:var(--red)">*</span></label>
+                            <input type="text" id="new-account-name-${fieldName}" placeholder="e.g., work, personal" autofocus>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
+                        <button type="button" class="btn btn-primary" style="padding:0.4rem 0.8rem;font-size:0.85rem" onclick="confirmNewOAuthAccount('${fieldName}')">Authorize</button>
+                        <button type="button" class="btn btn-secondary" style="padding:0.4rem 0.8rem;font-size:0.85rem" onclick="cancelNewOAuthAccount('${fieldName}')">Cancel</button>
+                    </div>
+                </div>
+            `;
+            container.insertAdjacentHTML('beforeend', formHtml);
+
+            // Focus the input
+            const input = document.getElementById(`new-account-name-${fieldName}`);
+            input.focus();
+
+            // Handle Enter key
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    confirmNewOAuthAccount(fieldName);
+                } else if (e.key === 'Escape') {
+                    cancelNewOAuthAccount(fieldName);
+                }
+            });
+        }
+
+        // Cancel adding new OAuth account
+        function cancelNewOAuthAccount(fieldName) {
+            const container = document.getElementById(`list-items-${fieldName}`);
+            const form = container.querySelector('.new-account-form');
+            if (form) form.remove();
+
+            // Show empty message if no items
+            if (container.querySelectorAll('.list-item').length === 0) {
+                container.innerHTML = `<div class="list-empty">No items configured. Click "Add" to add one.</div>`;
+            }
+        }
+
+        // Confirm and authorize new OAuth account
+        async function confirmNewOAuthAccount(fieldName) {
+            const field = currentSkill.fields.find(f => f.name === fieldName);
+            if (!field || !field.item_oauth) return;
+
+            const input = document.getElementById(`new-account-name-${fieldName}`);
+            const accountName = input?.value?.trim();
+
+            if (!accountName) {
+                input.style.borderColor = 'var(--red)';
+                return;
+            }
+
+            const slug = accountName.toLowerCase().replace(/\s+/g, '-');
+            const container = document.getElementById(`list-items-${fieldName}`);
+
+            // Check if account already exists
+            const existingItems = container.querySelectorAll('.list-item:not(.new-account-form)');
+            for (const item of existingItems) {
+                if (item.dataset.slug === slug) {
+                    showToast(`Account "${slug}" already exists`, 'error');
+                    input.style.borderColor = 'var(--red)';
+                    return;
+                }
+            }
+
+            // Remove the input form
+            const inputForm = container.querySelector('.new-account-form');
+            if (inputForm) inputForm.remove();
+
+            // Get client credentials from form
+            const configForm = document.getElementById('config-form');
+            const formData = new FormData(configForm);
+
+            let clientId = null;
+            let clientSecret = null;
+
+            for (const f of currentSkill.fields || []) {
+                const value = formData.get(f.name);
+                if (f.env_var?.includes('CLIENT_ID')) {
+                    clientId = value || currentSkill.config?.[f.name];
+                } else if (f.env_var?.includes('CLIENT_SECRET')) {
+                    clientSecret = value || currentSkill.config?.[f.name];
+                }
+            }
+
+            if (!clientId || !clientSecret) {
+                showToast('Please enter Client ID and Client Secret first', 'error');
+                return;
+            }
+
+            // Add item to list (will show as pending)
+            const index = container.querySelectorAll('.list-item').length;
+            const newItem = { slug: slug };
+            const html = renderListItem(fieldName, field.item_fields || [], newItem, index, true);
+            container.insertAdjacentHTML('beforeend', html);
+
+            // Trigger OAuth
+            await authorizeAccount(fieldName, slug);
+        }
+
+        // Authorize a specific account via OAuth
+        async function authorizeAccount(fieldName, accountSlug) {
+            const field = currentSkill.fields.find(f => f.name === fieldName);
+            if (!field || !field.item_oauth) return;
+
+            // Get client credentials
+            const form = document.getElementById('config-form');
+            const formData = new FormData(form);
+
+            let clientId = null;
+            let clientSecret = null;
+
+            for (const f of currentSkill.fields || []) {
+                const value = formData.get(f.name);
+                if (f.env_var?.includes('CLIENT_ID')) {
+                    clientId = value || currentSkill.config?.[f.name];
+                } else if (f.env_var?.includes('CLIENT_SECRET')) {
+                    clientSecret = value || currentSkill.config?.[f.name];
+                }
+            }
+
+            if (!clientId || !clientSecret) {
+                showToast('Client ID and Client Secret are required', 'error');
+                return;
+            }
+
+            // Find the button and update it
+            const container = document.getElementById(`list-items-${fieldName}`);
+            const itemEl = Array.from(container.querySelectorAll('.list-item')).find(el => el.dataset.slug === accountSlug);
+            if (itemEl) {
+                const btn = itemEl.querySelector('button[onclick*="authorizeAccount"]');
+                if (btn) {
+                    btn.disabled = true;
+                    btn.innerHTML = '<span class="loading"></span>';
+                }
+            }
+
+            showToast('Opening browser for authorization...', 'success');
+
+            const response = await fetch(`${API}/skills/${currentSkill.id}/oauth-account`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    account: accountSlug,
+                    field: fieldName,
+                    client_id: clientId,
+                    client_secret: clientSecret
+                })
+            }).catch(() => null);
+
+            if (!response) {
+                showToast('Connection failed', 'error');
+                await refreshSkill();
+                return;
+            }
+
+            const result = await response.json().catch(() => ({ error: 'Unknown error' }));
+
+            if (result.error) {
+                showToast(result.error, 'error');
+            } else {
+                showToast(`Account "${accountSlug}" authorized!`);
+            }
+
+            await refreshSkill();
+        }
+
+        // Remove an item from a list field
+        function removeListItem(fieldName, index) {
+            const container = document.getElementById(`list-items-${fieldName}`);
+            const items = container.querySelectorAll('.list-item');
+
+            if (items[index]) {
+                items[index].remove();
+
+                // Re-index remaining items
+                const remainingItems = container.querySelectorAll('.list-item');
+                remainingItems.forEach((item, i) => {
+                    item.dataset.index = i;
+                    // Update input names
+                    item.querySelectorAll('input').forEach(input => {
+                        input.name = input.name.replace(/\[\d+\]/, `[${i}]`);
+                    });
+                });
+
+                // Show empty message if no items left
+                if (remainingItems.length === 0) {
+                    container.innerHTML = `<div class="list-empty">No items configured. Click "Add" to add one.</div>`;
+                }
+            }
+        }
+
+        // Collect list field data from form
+        function collectListFieldData(fieldName) {
+            const container = document.getElementById(`list-items-${fieldName}`);
+            if (!container) return [];
+
+            const items = [];
+            const itemEls = container.querySelectorAll('.list-item');
+
+            itemEls.forEach((itemEl, index) => {
+                const item = {};
+                itemEl.querySelectorAll('input').forEach(input => {
+                    // Parse field name from input name: fieldName[index][subfield]
+                    const match = input.name.match(/\[(\d+)\]\[([^\]]+)\]$/);
+                    if (match) {
+                        const subfield = match[2];
+                        item[subfield] = input.value;
+                    }
+                });
+                if (Object.keys(item).length > 0) {
+                    items.push(item);
+                }
+            });
+
+            return items;
+        }
+
+        // Show toast
+        function showToast(message, type = 'success') {
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // API calls
+        async function installSkill() {
+            await fetch(`${API}/skills/${currentSkill.id}/install`, { method: 'POST' });
+            showToast('Skill installed');
+            await refreshSkill();
+        }
+
+        async function installToProvider(providerId) {
+            const response = await fetch(`${API}/skills/${currentSkill.id}/install/${providerId}`, { method: 'POST' }).catch(() => null);
+            if (!response || !response.ok) {
+                const result = response ? await response.json().catch(() => ({})) : {};
+                showToast(result.error || 'Failed to install', 'error');
+                return;
+            }
+            showToast('Installed');
+            await refreshSkill();
+        }
+
+        async function updateInProvider(providerId) {
+            const response = await fetch(`${API}/skills/${currentSkill.id}/install/${providerId}`, { method: 'POST' }).catch(() => null);
+            if (!response || !response.ok) {
+                const result = response ? await response.json().catch(() => ({})) : {};
+                showToast(result.error || 'Failed to update', 'error');
+                return;
+            }
+            showToast('Updated');
+            await refreshSkill();
+        }
+
+        async function uninstallFromProvider(providerId) {
+            const response = await fetch(`${API}/skills/${currentSkill.id}/uninstall/${providerId}`, { method: 'POST' }).catch(() => null);
+            if (!response || !response.ok) {
+                const result = response ? await response.json().catch(() => ({})) : {};
+                showToast(result.error || 'Failed to remove', 'error');
+                return;
+            }
+            showToast('Removed');
+            await refreshSkill();
+        }
+
+        async function saveConfig() {
+            const form = document.getElementById('config-form');
+            const formData = new FormData(form);
+            const config = {};
+
+            for (const field of currentSkill.fields || []) {
+                // Handle list type fields
+                if (field.type === 'list') {
+                    const items = collectListFieldData(field.name);
+                    const existingItems = currentSkill.config?.[field.name] || [];
+
+                    items.forEach((item, index) => {
+                        // Find matching existing item by slug first, then by index
+                        const existingBySlug = existingItems.find(e => e.slug === item.slug);
+                        const existingByIndex = existingItems[index];
+
+                        // Preserve passwords - try by slug first, then by index
+                        for (const itemField of field.item_fields || []) {
+                            if (itemField.type === 'password' && !item[itemField.name]) {
+                                const source = existingBySlug || existingByIndex;
+                                if (source && source[itemField.name]) {
+                                    item[itemField.name] = source[itemField.name];
+                                }
+                            }
+                        }
+
+                        // Preserve OAuth tokens - try by slug first, then by index
+                        if (field.item_oauth) {
+                            const tokenSource = existingBySlug || existingByIndex;
+                            if (tokenSource) {
+                                const tokenMapping = field.item_oauth.token_mapping || {};
+                                for (const tokenKey of Object.keys(tokenMapping)) {
+                                    if (tokenSource[tokenKey] && !item[tokenKey]) {
+                                        item[tokenKey] = tokenSource[tokenKey];
+                                    }
+                                }
+                            }
+                        }
+                    });
+                    config[field.name] = items;
+                } else {
+                    const value = formData.get(field.name);
+                    // Keep existing password if not changed
+                    if (field.type === 'password' && !value && currentSkill.config?.[field.name]) {
+                        config[field.name] = currentSkill.config[field.name];
+                    } else {
+                        config[field.name] = value;
+                    }
+                }
+            }
+
+            await fetch(`${API}/skills/${currentSkill.id}/configure`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config)
+            });
+
+            showToast('Configuration saved');
+            await refreshSkill();
+        }
+
+        async function updateSkill() {
+            await fetch(`${API}/skills/${currentSkill.id}/update`, { method: 'POST' });
+            showToast('Skill updated');
+            await refreshSkill();
+        }
+
+        async function testSkill() {
+            const container = document.getElementById('test-output-container');
+            const output = document.getElementById('test-output');
+
+            container.style.display = 'block';
+            output.textContent = 'Running test...';
+
+            const response = await fetch(`${API}/skills/${currentSkill.id}/test`, { method: 'POST' });
+            const result = await response.json();
+
+            output.textContent = result.output;
+            showToast(result.success ? 'Test passed' : 'Test failed', result.success ? 'success' : 'error');
+        }
+
+        async function startOAuth() {
+            const form = document.getElementById('oauth-form');
+            const formData = new FormData(form);
+            const btn = document.getElementById('oauth-btn');
+            const status = document.getElementById('oauth-status');
+
+            // Get client credentials
+            let clientId = null;
+            let clientSecret = null;
+
+            for (const field of currentSkill.fields || []) {
+                const value = formData.get(field.name);
+                if (field.env_var?.includes('CLIENT_ID')) {
+                    clientId = value || currentSkill.config?.[field.name];
+                } else if (field.env_var?.includes('CLIENT_SECRET')) {
+                    clientSecret = value || currentSkill.config?.[field.name];
+                }
+            }
+
+            if (!clientId || !clientSecret) {
+                showToast('Client ID and Client Secret are required', 'error');
+                return;
+            }
+
+            // Update UI
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span> Waiting for authorization...';
+            status.style.display = 'block';
+            status.innerHTML = 'A browser window will open. Please authorize the application.<br><span style="color:var(--text-dim);font-size:0.85rem">This may take a moment...</span>';
+
+            const response = await fetch(`${API}/skills/${currentSkill.id}/oauth`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ client_id: clientId, client_secret: clientSecret })
+            }).catch(() => null);
+
+            btn.disabled = false;
+            btn.innerHTML = `Authorize ${currentSkill.title}`;
+
+            if (!response) {
+                status.innerHTML = '<span style="color:var(--red)">Connection failed. Please try again.</span>';
+                showToast('Connection failed', 'error');
+                return;
+            }
+
+            const result = await response.json().catch(() => ({ error: 'Unknown error' }));
+
+            if (result.error) {
+                status.innerHTML = `<span style="color:var(--red)">${escapeHtml(result.error)}</span>`;
+                showToast('Authorization failed', 'error');
+                return;
+            }
+
+            status.innerHTML = '<span style="color:var(--green)">&#10004; Authorization successful!</span>';
+            showToast('Authorization complete');
+            await refreshSkill();
+        }
+
+        async function clearAuth() {
+            if (!confirm('Remove credentials for this skill?')) return;
+
+            await fetch(`${API}/skills/${currentSkill.id}/clear-auth`, { method: 'POST' });
+            showToast('Credentials removed');
+            await refreshSkill();
+        }
+
+        async function uninstallSkill() {
+            if (!confirm('Uninstall this skill? This will remove all files and credentials.')) return;
+
+            await fetch(`${API}/skills/${currentSkill.id}/uninstall`, { method: 'POST' });
+            showToast('Skill uninstalled');
+            closeModal();
+            await loadSkills();
+        }
+
+        async function refreshSkill() {
+            const response = await fetch(`${API}/skills/${currentSkill.id}`);
+            currentSkill = await response.json();
+            renderModal();
+            await loadSkills();
+        }
+
+        // Init
+        async function init() {
+            await loadProviders();
+            await loadSkills();
+            await checkForUpdates();
+        }
+        init();
+    </script>
+</body>
+</html>

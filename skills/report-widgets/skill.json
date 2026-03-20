@@ -1,0 +1,51 @@
+{
+  "name": "report-widgets",
+  "title": "Report Widgets",
+  "description": "Create and manage Sytex report widgets (charts, tables, KPIs) via the API.",
+  "version": "1.0.0",
+  "setup_instructions": "You need: (1) the instance URL, (2) your organization ID, and (3) either a Token or an API key (client_id + client_secret from Settings > API Keys in Sytex).",
+  "fields": [
+    {
+      "name": "base_url",
+      "label": "Instance URL",
+      "type": "text",
+      "required": true,
+      "env_var": "SYTEX_BASE_URL",
+      "placeholder": "https://app.sytex.io",
+      "help": "The base URL of your Sytex instance."
+    },
+    {
+      "name": "org_id",
+      "label": "Organization ID",
+      "type": "text",
+      "required": true,
+      "env_var": "SYTEX_ORG_ID",
+      "help": "Your organization ID in Sytex."
+    },
+    {
+      "name": "token",
+      "label": "API Token",
+      "type": "password",
+      "required": false,
+      "env_var": "SYTEX_TOKEN",
+      "help": "DRF Token for auth. Use this OR the API key fields below."
+    },
+    {
+      "name": "client_id",
+      "label": "Client ID",
+      "type": "text",
+      "required": false,
+      "env_var": "SYTEX_CLIENT_ID",
+      "help": "API key Client ID (from Settings > API Keys in Sytex)."
+    },
+    {
+      "name": "client_secret",
+      "label": "Client Secret",
+      "type": "password",
+      "required": false,
+      "env_var": "SYTEX_CLIENT_SECRET",
+      "help": "API key Client Secret."
+    }
+  ],
+  "files": ["api", "SKILL.md", "definition-reference.md", "examples.md", "data-model.md"]
+}
