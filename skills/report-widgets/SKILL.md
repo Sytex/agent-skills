@@ -16,7 +16,7 @@ Create report widgets in Sytex via the API. Widgets are SQL-based data visualiza
 
 1. **Understand the request** — What data? What visualization? What filters?
 2. **Fetch the schema** — Get available entities, columns, and filter types via `schema`
-3. **Discover data** — Use `column-values` to find actual values (statuses, template codes, project codes). Values are translated and org-specific, so discovering them prevents building widgets with wrong filter values.
+3. **Discover data** — Use `column-values` mainly for translated/base-filter values (statuses, template codes, project codes). For interactive `options` filters, prefer defining `content_type` so the UI loads options directly from `filteroptions`.
 4. **Confirm with the user** — Verify the date filter default range before building
 5. **Build the definition** — Construct the JSON definition (see `definition-reference.md`)
 6. **Preview** — Test the definition and verify the returned data makes sense
@@ -73,6 +73,12 @@ Preview returns `{"columns": [...], "rows": [...]}` — use this to catch SQL er
 
 Before building a widget, discover actual data values. Statuses, field labels, and project names are **translated per organization** — "Completed" in one org is "Completada" in another, "Submitted" is "Enviado". Hardcoding assumed values produces widgets that return no data or wrong data.
 
+Use `column-values` for:
+- translated values needed in `base_filters` or `fixed_options`
+- sanity-checking available DW values when the source data is unclear
+
+Do **not** use `column-values` as the primary mechanism for user-facing dynamic dropdowns in new widgets. For dynamic `options` filters, add `content_type` in `interactive_filters` so `reportwidget` uses the same `filteroptions` flow as `datareport`.
+
 ```bash
 api column-values <entity_type> <column>
 ```
@@ -96,11 +102,17 @@ api column-values entry_answers form_template_code
 
 - **Identifiers over names** — Filter by code, id, or index when available. Names are translated and can change; identifiers are stable across languages. Use `template_code` over `template_name`, `project_code` over `project_name`, etc. Only use names (like status names) when there's no identifier alternative.
 
+- **Dynamic dropdowns should declare `content_type`** — For `interactive_filters` of type `options`, define `content_type` explicitly in the widget definition (for example `project`, `operationalunit`). That makes the front call `/api/<resource>/filteroptions/` directly, exactly like `datareport`. Only rely on the old `column_values` path as a temporary fallback for legacy widgets without `content_type`.
+
 - **`answer_index` requires a template filter** — The same index (e.g., "1.8") exists across many form templates with completely different meanings (cable length in one, certificates in another). Querying `entry_answers` without filtering by `form_template_code` mixes unrelated data and produces incorrect aggregations.
 
 - **Include a date filter** — Most widgets benefit from an interactive date filter on a meaningful date column (submission date, completion date, etc.). Confirm the default range with the user. Only skip for truly timeless data.
 
 - **Preview before creating** — Catches SQL errors and lets you verify the data matches the requirement.
+
+- **`transform_script` must `return` a dict** — The runtime expects the script body to explicitly `return {"columns": [...], "rows": [...]}`. Using `result = {...}` without returning it makes the sandbox answer with `data: null`, which later breaks backend with `'NoneType' object has no attribute 'get'`.
+
+- **Numeric aggregations may arrive as `Decimal`** — If the backend instance has not yet been updated to serialize `Decimal` args for the sandbox executor, some widgets with `AVG`/`SUM` values can fail before the `transform_script` runs. In that case the fix is backend-side; there is no reliable workaround inside the script itself.
 
 - **`answer_value` is TEXT** — Cast to DECIMAL for numeric aggregations: `CAST(\`ea\`.\`answer_value\` AS DECIMAL(10,2))`
 

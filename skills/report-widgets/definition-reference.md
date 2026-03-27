@@ -123,6 +123,14 @@ User-facing filters. Users can change values at runtime through the UI.
   },
   {
     "source": "t",
+    "id": "project_code",
+    "type": "options",
+    "label": "Project",
+    "content_type": "project",
+    "default": null
+  },
+  {
+    "source": "t",
     "id": "task_status",
     "type": "fixed_options",
     "label": "Status",
@@ -135,6 +143,13 @@ User-facing filters. Users can change values at runtime through the UI.
 ]
 ```
 
+Notes:
+
+- For new dynamic dropdowns, prefer `type: "options"` plus `content_type`.
+- `content_type` tells the frontend which `/api/<resource>/filteroptions/` endpoint to use.
+- The SQL filter still applies on `id`, not on `content_type`. Example: `id: "project_code"` with `content_type: "project"`.
+- Legacy widgets without `content_type` may still fall back to `column_values`, but that is compatibility behavior, not the preferred path.
+
 ## Filter Types
 
 | Type | Value format | Description |
@@ -143,7 +158,7 @@ User-facing filters. Users can change values at runtime through the UI.
 | `date` | `{"exact": "2024-01-15"}` | Exact date |
 | `date` | `{"gte": "2024-01-01", "lte": "2024-12-31"}` | Date range |
 | `date` | `{"value_is_empty": true}` | NULL check |
-| `options` | `[{"id": "val1"}, {"id": "val2"}]` | Dynamic options (IN clause) |
+| `options` | `[{"id": "val1"}, {"id": "val2"}]` | Dynamic options (IN clause); for new widgets pair with `content_type` so UI loads values from `filteroptions` |
 | `fixed_options` | `{"options": [{"id": "val1"}]}` | Static predefined options (IN clause) |
 | `text` | `"exact value"` | Exact text match (=) |
 | `text_starts_with` | `"SOL"` | Starts with (LIKE 'SOL%') |
@@ -206,8 +221,24 @@ How to render the data.
 
 ## Transform Script (advanced)
 
-Optional Python script for post-processing. Receives `rows` (list of lists) and `columns` (list of strings). Must return `{"rows": [...], "columns": [...]}`.
+Optional Python script for post-processing. Receives `rows` (list of lists) and `columns` (list of strings). The script body must explicitly `return {"rows": [...], "columns": [...]}`.
 
 ```json
-"transform_script": "result = {'columns': columns, 'rows': sorted(rows, key=lambda r: r[0])}"
+"transform_script": "return {'columns': columns, 'rows': sorted(rows, key=lambda r: r[0])}"
 ```
+
+Notes:
+
+- `rows` items are positional lists, not dicts. If you need named access, build it yourself with `dict(zip(columns, row))`.
+- If the backend instance has not yet been updated to serialize `Decimal` values for sandbox args, some numeric aggregations can fail before the script runs. That issue must be fixed backend-side.
+
+## `content_type` examples
+
+Common values for `interactive_filters` of type `options`:
+
+```json
+{"source": "t", "id": "project_code", "type": "options", "label": "Project", "content_type": "project"}
+{"source": "t", "id": "workspace_code", "type": "options", "label": "Workspace", "content_type": "operationalunit"}
+```
+
+These examples keep filtering on `project_code` / `workspace_code`, but the dropdown labels and search come from the matching `filteroptions` API.

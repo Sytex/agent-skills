@@ -62,6 +62,39 @@
 }
 ```
 
+## Dynamic filter using `content_type`
+
+Use this pattern when you want the widget filter to behave like `datareport`, loading names and search results from `filteroptions` instead of `column_values`.
+
+```json
+{
+  "sources": [{"id": "t", "entity_type": "tasks"}],
+  "columns": [{"source": "t", "id": "task_name"}],
+  "interactive_filters": [
+    {
+      "source": "t",
+      "id": "project_code",
+      "type": "options",
+      "label": "Proyecto",
+      "content_type": "project",
+      "default": null
+    },
+    {
+      "source": "t",
+      "id": "workspace_code",
+      "type": "options",
+      "label": "Área de trabajo",
+      "content_type": "operationalunit",
+      "default": null
+    }
+  ],
+  "group_by": ["`t`.`task_name`"],
+  "aggregations": [{"function": "COUNT", "column": "*", "alias": "total"}],
+  "order_by": ["total DESC"],
+  "visualization": {"type": "bar", "config": {"x_axis": "task_name", "y_axis": ["total"]}}
+}
+```
+
 ## Line chart: Trend over time
 
 ```json
