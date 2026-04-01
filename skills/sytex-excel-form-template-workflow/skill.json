@@ -2,7 +2,7 @@
   "name": "sytex-excel-form-template-workflow",
   "title": "Sytex Excel Form Template Workflow",
   "description": "Workflow for analyzing and maintaining Sytex Excel form templates (.xlsx) with safe reference validation against real form JSON.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "files": ["SKILL.md", "README.md"],
   "fields": []
 }

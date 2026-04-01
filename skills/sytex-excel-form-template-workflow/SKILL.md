@@ -44,7 +44,7 @@ Rutas clave:
 El exportador no resuelve solo strings literales. Hoy soporta:
 - propiedades `form.*`
 - propiedades `answers.*`
-- funciones `contains(...)`, `isEqual(...)`, `left(...)`, `right(...)`
+- funciones `contains(...)`, `isEqual(...)`, `left(...)`, `right(...)`, `date_format(...)`
 - expresiones tipo `a or b`
 - expresiones tipo `"A" if condicion else "B"`
 
@@ -73,6 +73,8 @@ Patrones válidos frecuentes:
 - `{{ contains(answers.<key>.value, "EPP") }}`
 - `{{ left(form.code, 3) }}`
 - `{{ right(form.code, 4) }}`
+- `{{ date_format(answers.<key>.value, "%d/%m/%Y") }}`
+- `{{ date_format(form.approvalDate, "%Y-%m-%d %H:%M") }}`
 
 Errores comunes:
 - espacios internos que rompen paths (`answers. 2_1.value`)
@@ -213,6 +215,35 @@ Ejemplo práctico:
 ### Location
 - sigue exponiendo `latitude` y `longitude` además del valor base.
 
+### Object selection
+Cuando una respuesta es de tipo object selection (`entry_type == 14`), el adaptador expone metadata adicional del objeto seleccionado:
+
+Paths disponibles:
+- `answers.<key>.value` — devuelve `code` del objeto si existe, si no `name`, si no `display` (backward-compatible)
+- `answers.<key>.id` — ID del objeto seleccionado
+- `answers.<key>.name` — nombre del objeto
+- `answers.<key>.code` — código del objeto (string vacío si no tiene)
+- `answers.<key>.type` — modelo del tipo de objeto (e.g., `"site"`, `"networkelement"`, `"material"`, `"supplier"`)
+
+Semántica:
+- el adaptador resuelve el objeto real contra `ContentType` usando `object_type` y el `answer` (ID del objeto)
+- si la resolución falla (objeto eliminado, tipo inválido), hace fallback a `content_object` del JSON como display/name
+- `value` en render (texto) usa la prioridad `code > name > display`; en acceso raw devuelve el ID crudo del objeto
+- los paths `id`, `name`, `code`, `type` están disponibles tanto por índice normalizado, `template_entry_id`, como por clave humana
+
+Ejemplo práctico:
+- entry con `object_type_model: "site"`, objeto con `code: "0003"`, `name: "Test Site"`
+- `{{ answers.1_6.value }}` → `"0003"`
+- `{{ answers.1_6.name }}` → `"Test Site"`
+- `{{ answers.1_6.code }}` → `"0003"`
+- `{{ answers.1_6.type }}` → `"site"`
+- `{{ answers.1_6.id }}` → `"site-001"` (ID del objeto)
+
+Display por tipo de objeto:
+- `material`: `"{code} {name}"`
+- `site`, `networkelement`: `"{code} - {name}"`
+- otros: solo `name`
+
 ## Funciones soportadas
 
 ### `isEqual(left, right)`
@@ -246,6 +277,19 @@ Uso:
 Uso:
 - `{{ right(form.code, 4) }}`
 - `{{ right(form.code, -2) }}`
+
+### `date_format(property, format)`
+Uso:
+- `{{ date_format(answers.<key>.value, "%d/%m/%Y") }}`
+- `{{ date_format(form.approvalDate, "%Y-%m-%d %H:%M") }}`
+- `{{ date_format(form.planDate, "%d de %B de %Y") }}`
+
+Semántica:
+- acepta `date`, `datetime`, strings ISO 8601, y formatos comunes (`YYYY-MM-DD`, `YYYY-MM-DD HH:MM:SS`, `YYYY-MM-DD HH:MM`)
+- normaliza sufijo `Z` como `+00:00` para parsear UTC
+- el segundo argumento es un format string de Python `strftime` (e.g., `%d/%m/%Y`, `%H:%M`, `%B`)
+- si el valor no puede interpretarse como fecha, devuelve string vacío
+- si el valor ya es un objeto `date` o `datetime` nativo, lo formatea directamente
 
 ## Workflow recomendado
 1. Inventario:
@@ -391,7 +435,7 @@ rg -o -N "\{\{[^}]+\}\}" /tmp/xlsx/xl -g '*.xml'
 rg -o -N "answers\.[A-Za-z0-9_-]+\.photos\.[0-9]+" /tmp/xlsx/xl -g '*.xml' -g '*.rels'
 
 # Detectar uso de funciones soportadas
-rg -o -N "contains\([^)]*\)|isEqual\([^)]*\)|left\([^)]*\)|right\([^)]*\)" /tmp/xlsx/xl -g '*.xml'
+rg -o -N "contains\([^)]*\)|isEqual\([^)]*\)|left\([^)]*\)|right\([^)]*\)|date_format\([^)]*\)" /tmp/xlsx/xl -g '*.xml'
 
 # Detectar cláusulas if/else u or
 rg -o -N "\"[^\"]+\" if [^}]+ else \"[^\"]+\"|[A-Za-z0-9_.-]+ or [A-Za-z0-9_.-]+" /tmp/xlsx/xl -g '*.xml'
