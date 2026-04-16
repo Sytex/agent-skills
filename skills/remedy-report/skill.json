@@ -1,0 +1,9 @@
+{
+  "name": "remedy-report",
+  "title": "Remedy Report",
+  "description": "Generate Remedy automation reports for TMA (org 217): errors, novedades CRQ, and monthly summaries as Excel/Word.",
+  "version": "1.0.0",
+  "fields": [],
+  "dependencies": ["openpyxl"],
+  "files": ["remedy-report", "SKILL.md"]
+}

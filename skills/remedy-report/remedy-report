@@ -1,0 +1,798 @@
+#!/usr/bin/env python3
+"""
+Remedy Report Generator for TMA (org 217)
+Generates Excel/Word reports for Remedy automation executions.
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from collections import defaultdict
+from datetime import datetime, timedelta
+
+# ── Constants ────────────────────────────────────────────────────────────────
+
+ORG_ID = 217
+BASE_URL = "https://app.sytex.io"
+SYTEX_CLI = os.path.expanduser("~/.claude/skills/sytex/sytex")
+STATUS_FLOW_ID = 2075
+PAGE_SIZE = 200
+API_MAX = 1000  # API caps at ~1001 results per automation
+
+AUTOMATIONS = {
+    "37f15c5e-3f06-472f-8d3e-27b9bbb734b5": "Autorizar con CRQ",
+    "bc5fecc5-855b-4491-b670-66a0068af4ed": "Autorizar con CRQ (2)",
+    "20ac46bc-748c-4b55-a9e8-7df2b269ba49": "Autorizar sin CRQ",
+    "eecb4e75-b321-422c-b987-935e3dd9206f": "Inicio tarea Remedy",
+    "af16da40-97d3-4a97-895e-5bd9f2990897": "Inicio tarea Remedy GE",
+    "fc68e2f0-ae5f-465d-9c05-49ed33693a2a": "Fin tarea Remedy",
+    "56ad9f1c-1a59-4e04-a103-c7a5c0ef20a8": "Fin tarea Remedy GE",
+    "b39ed83d-210a-416f-a1f0-3e6f2947286c": "Novedades CRQ",
+}
+
+# Cached step name mappings (fetched fresh when possible)
+STEP_NAMES = {
+    5353: "Pendiente de Planificar",
+    6057: "Planificada",
+    6058: "Pendiente de Autorizacion",
+    6060: "Programado",
+    6064: "Iniciada en campo",
+    6065: "Finalizado en campo",
+}
+
+TASK_TEMPLATES = {
+    1334: "OyM Mantenimiento Preventivo (MP)",
+    1610: "OyM MP GE",
+}
+
+
+# ── API Helpers ──────────────────────────────────────────────────────────────
+
+def sytex_get(endpoint):
+    """Call the Sytex CLI to GET an endpoint."""
+    result = subprocess.run(
+        [SYTEX_CLI, "--base-url", BASE_URL, "--org", str(ORG_ID), "get", endpoint],
+        capture_output=True, text=True, timeout=60,
+    )
+    raw = result.stdout.strip()
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
+def fetch_automation_logs(uuid, status=None, date_from=None, date_to=None):
+    """Fetch all automation logs for a given UUID, paginating through API cap."""
+    all_results = []
+    seen_ids = set()
+    offset = 0
+
+    while offset <= API_MAX:
+        params = f"automation__uuid={uuid}&limit={PAGE_SIZE}&offset={offset}"
+        if status:
+            params += f"&execution_status={status}"
+        if date_from:
+            params += f"&when_executed__gte={date_from}T00:00:00"
+        if date_to:
+            params += f"&when_executed__lte={date_to}T23:59:59"
+
+        data = sytex_get(f"/automationlogs/?{params}")
+        if not data or not data.get("results"):
+            break
+
+        results = data["results"]
+        new_count = 0
+        for r in results:
+            if r["id"] not in seen_ids:
+                seen_ids.add(r["id"])
+                r["_automation_uuid"] = uuid
+                r["_automation_name"] = AUTOMATIONS.get(uuid, uuid[:8])
+                all_results.append(r)
+                new_count += 1
+
+        if len(results) < PAGE_SIZE or new_count == 0:
+            break
+        offset += PAGE_SIZE
+
+    return all_results
+
+
+def fetch_step_names():
+    """Fetch fresh step name mappings from the status flow, paginating until exhausted."""
+    global STEP_NAMES
+    offset = 0
+    while True:
+        data = sytex_get(f"/statusstep/?status_flow={STATUS_FLOW_ID}&limit={PAGE_SIZE}&offset={offset}")
+        if not data or not data.get("results"):
+            break
+        for step in data["results"]:
+            name_obj = step.get("name", {})
+            if isinstance(name_obj, dict):
+                name_id = name_obj.get("id")
+                name = name_obj.get("name", "")
+                if name_id and name:
+                    STEP_NAMES[name_id] = name
+        if not data.get("next"):
+            break
+        offset += PAGE_SIZE
+    return STEP_NAMES
+
+
+def fetch_task_detail(task_id):
+    """Fetch a single task's details."""
+    data = sytex_get(f"/task/{task_id}/")
+    if not data or not isinstance(data, dict):
+        return None
+
+    tt = data.get("task_template")
+    tt_id = tt.get("id") if isinstance(tt, dict) else tt
+    tt_name = ""
+    if isinstance(tt, dict):
+        tt_name = tt.get("name", "")
+    if not tt_name:
+        tt_name = data.get("get_task_template_name", "")
+
+    ss = data.get("status_step", {})
+    status_name = ""
+    if isinstance(ss, dict):
+        name_obj = ss.get("name", {})
+        if isinstance(name_obj, dict):
+            status_name = name_obj.get("name", "")
+
+    return {
+        "code": data.get("code", ""),
+        "template_id": tt_id,
+        "template_name": tt_name,
+        "status": status_name,
+    }
+
+
+# ── Data Extraction ─────────────────────────────────────────────────────────
+
+def parse_action_result(ar):
+    """Parse action_result which can be dict or JSON string."""
+    if isinstance(ar, dict):
+        return ar
+    if isinstance(ar, str) and ar:
+        try:
+            return json.loads(ar)
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return None
+
+
+def extract_log_data(log):
+    """Extract structured data from an automation log entry."""
+    steps = log.get("steps_logs", [])
+    result = {
+        "log_id": log["id"],
+        "when": log.get("when_executed", ""),
+        "status": log.get("execution_status", ""),
+        "automation_uuid": log.get("_automation_uuid", ""),
+        "automation_name": log.get("_automation_name", ""),
+        "task_id": None,
+        "task_code": None,
+        "crq_id": None,
+        "crq_status": None,
+        "crq_date": None,
+        "new_step_id": None,
+        "new_step_name": None,
+        "no_status_change": False,
+        "error_step": None,
+        "error_msg": None,
+    }
+
+    for s in steps:
+        step_info = s.get("step", {})
+        action = step_info.get("action", {}) if isinstance(step_info, dict) else {}
+        action_name = action.get("name", "") if isinstance(action, dict) else ""
+
+        ar = parse_action_result(s.get("action_result"))
+        ae = s.get("action_error")
+
+        if ar:
+            # CRQ data (Disponibilizar datos step)
+            if "crq_id" in ar:
+                result["crq_id"] = ar.get("crq_id")
+                result["crq_status"] = ar.get("crq_status_name")
+                result["crq_date"] = ar.get("date")
+
+            # Integration reference (task ID)
+            if "task" in ar and ar["task"]:
+                result["task_id"] = ar["task"]
+
+            # Task data (full task object)
+            if "code" in ar and str(ar.get("code", "")).startswith("TA-"):
+                result["task_code"] = ar["code"]
+                if not result["task_id"]:
+                    result["task_id"] = ar.get("id")
+
+            # Step determination
+            if "new_step_name" in ar:
+                step_id = ar["new_step_name"]
+                result["new_step_id"] = step_id
+                result["new_step_name"] = STEP_NAMES.get(step_id, f"ID {step_id}")
+            if "no_status_change_required" in ar:
+                result["no_status_change"] = ar["no_status_change_required"]
+
+        if ae:
+            result["error_step"] = action_name
+            result["error_msg"] = str(ae)[:250]
+
+    return result
+
+
+# ── Excel Generation ─────────────────────────────────────────────────────────
+
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
+HEADER_FONT = Font(bold=True, color="FFFFFF", size=11)
+HEADER_FILL = PatternFill(start_color="2F5496", end_color="2F5496", fill_type="solid")
+ERR_FILL = PatternFill(start_color="FCE4EC", end_color="FCE4EC", fill_type="solid")
+OK_FILL = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
+WARN_FILL = PatternFill(start_color="FFF3E0", end_color="FFF3E0", fill_type="solid")
+THIN_BORDER = Border(
+    left=Side(style="thin"), right=Side(style="thin"),
+    top=Side(style="thin"), bottom=Side(style="thin"),
+)
+
+
+def write_header(ws, headers, widths):
+    for col, h in enumerate(headers, 1):
+        c = ws.cell(row=1, column=col, value=h)
+        c.font = HEADER_FONT
+        c.fill = HEADER_FILL
+        c.alignment = Alignment(horizontal="center", wrap_text=True)
+        c.border = THIN_BORDER
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+
+def build_errors_excel(logs_data, task_details, output_path):
+    """Build an Excel report for error logs."""
+    wb = Workbook()
+
+    # ── Sheet 1: Tareas con errores ──
+    ws1 = wb.active
+    ws1.title = "Tareas con errores"
+    headers1 = ["#", "Codigo Tarea", "Task ID", "Template", "Estado Actual",
+                 "Cant. Errores", "Primer Error", "Ultimo Error", "Tipo de Error"]
+    write_header(ws1, headers1, [5, 16, 10, 32, 22, 14, 20, 20, 55])
+
+    # Group by task
+    task_errors = defaultdict(lambda: {
+        "count": 0, "errors": set(), "first": None, "last": None
+    })
+    for d in logs_data:
+        tid = d["task_id"]
+        if not tid:
+            continue
+        te = task_errors[tid]
+        te["count"] += 1
+        if d["error_msg"]:
+            te["errors"].add(d["error_msg"][:80])
+        when = d["when"]
+        if not te["first"] or when < te["first"]:
+            te["first"] = when
+        if not te["last"] or when > te["last"]:
+            te["last"] = when
+
+    row_idx = 2
+    for i, (tid, te) in enumerate(
+        sorted(task_errors.items(), key=lambda x: -x[1]["count"]), 1
+    ):
+        td = task_details.get(str(tid), {})
+        first_dt = te["first"][:16].replace("T", " ") if te["first"] else ""
+        last_dt = te["last"][:16].replace("T", " ") if te["last"] else ""
+        error_summary = "; ".join(te["errors"]) if te["errors"] else "(sin detalle)"
+        vals = [
+            i, td.get("code", "?"), tid, td.get("template_name", "?"),
+            td.get("status", "?"), te["count"], first_dt, last_dt, error_summary,
+        ]
+        fill = ERR_FILL if te["count"] > 3 else WARN_FILL
+        for col, v in enumerate(vals, 1):
+            c = ws1.cell(row=row_idx, column=col, value=v)
+            c.fill = fill
+            c.border = THIN_BORDER
+        row_idx += 1
+
+    ws1.auto_filter.ref = f"A1:I{row_idx - 1}"
+    ws1.freeze_panes = "A2"
+
+    # ── Sheet 2: Detalle ejecuciones ──
+    ws2 = wb.create_sheet("Detalle ejecuciones")
+    headers2 = ["#", "Fecha/Hora", "Codigo Tarea", "Task ID", "Template",
+                 "Estado Actual", "Automatizacion", "Paso con Error", "Error", "Log ID"]
+    write_header(ws2, headers2, [5, 20, 16, 10, 32, 22, 22, 30, 55, 12])
+
+    for i, d in enumerate(sorted(logs_data, key=lambda x: x["when"]), 1):
+        tid = d["task_id"]
+        td = task_details.get(str(tid), {}) if tid else {}
+        when = d["when"][:19].replace("T", " ") if d["when"] else ""
+        vals = [
+            i, when, td.get("code", d.get("task_code", "?")), tid or "",
+            td.get("template_name", "?"), td.get("status", "?"),
+            d["automation_name"], d["error_step"] or "", d["error_msg"] or "", d["log_id"],
+        ]
+        for col, v in enumerate(vals, 1):
+            c = ws2.cell(row=i + 1, column=col, value=v)
+            c.fill = ERR_FILL
+            c.border = THIN_BORDER
+
+    ws2.auto_filter.ref = f"A1:J{len(logs_data) + 1}"
+    ws2.freeze_panes = "A2"
+
+    # ── Sheet 3: Resumen ──
+    ws3 = wb.create_sheet("Resumen")
+    stats = [
+        ["Metrica", "Valor"],
+        ["Total ejecuciones con error", len(logs_data)],
+        ["Tareas unicas afectadas", len(task_errors)],
+    ]
+
+    # Template breakdown
+    template_counts = defaultdict(int)
+    for tid in task_errors:
+        td = task_details.get(str(tid), {})
+        tn = td.get("template_name", "?")
+        template_counts[tn] += 1
+    for tn, c in sorted(template_counts.items(), key=lambda x: -x[1]):
+        stats.append([f"  Template: {tn}", c])
+
+    stats.append(["", ""])
+    stats.append(["Estado actual", "Cantidad"])
+    status_counts = defaultdict(int)
+    for tid in task_errors:
+        td = task_details.get(str(tid), {})
+        status_counts[td.get("status", "?")] += 1
+    for s, c in sorted(status_counts.items(), key=lambda x: -x[1]):
+        stats.append([s, c])
+
+    stats.append(["", ""])
+    stats.append(["Automatizacion", "Errores"])
+    auto_counts = defaultdict(int)
+    for d in logs_data:
+        auto_counts[d["automation_name"]] += 1
+    for a, c in sorted(auto_counts.items(), key=lambda x: -x[1]):
+        stats.append([a, c])
+
+    stats.append(["", ""])
+    stats.append(["Error mas comun", "Cantidad"])
+    error_counts = defaultdict(int)
+    for d in logs_data:
+        e = (d["error_msg"] or "(sin detalle)")[:80]
+        error_counts[e] += 1
+    for e, c in sorted(error_counts.items(), key=lambda x: -x[1]):
+        stats.append([e, c])
+
+    for row_idx, row_data in enumerate(stats, 1):
+        for col, v in enumerate(row_data, 1):
+            c = ws3.cell(row=row_idx, column=col, value=v)
+            c.border = THIN_BORDER
+            if row_idx == 1 or (isinstance(v, str) and v in ["Estado actual", "Cantidad",
+                    "Automatizacion", "Errores", "Error mas comun"]):
+                c.font = HEADER_FONT
+                c.fill = HEADER_FILL
+
+    ws3.column_dimensions["A"].width = 55
+    ws3.column_dimensions["B"].width = 15
+
+    wb.save(output_path)
+    return output_path
+
+
+def build_novedades_excel(logs_data, output_path):
+    """Build an Excel report for Novedades CRQ logs."""
+    wb = Workbook()
+
+    # ── Sheet 1: Novedades por CRQ ──
+    ws1 = wb.active
+    ws1.title = "Novedades por CRQ"
+    headers1 = ["#", "Fecha", "Hora", "CRQ ID", "Estado CRQ (Remedy)",
+                 "Fecha Novedad Remedy", "Tarea Sytex", "Task ID",
+                 "Resultado", "Accion/Error", "Log ID"]
+    write_header(ws1, headers1, [5, 12, 10, 22, 20, 22, 16, 10, 10, 50, 12])
+
+    sorted_logs = sorted(logs_data, key=lambda x: x["when"])
+    for i, d in enumerate(sorted_logs, 1):
+        when = d["when"]
+        fecha = when[:10] if when else ""
+        hora = when[11:19] if len(when) > 18 else ""
+
+        if d["status"] == "error" or d["error_msg"]:
+            resultado = "Error"
+            accion = f"Error: {d['error_msg']}" if d["error_msg"] else "Error"
+        elif d["no_status_change"]:
+            resultado = "OK"
+            accion = "Sin cambio de estado requerido"
+        elif d["new_step_id"]:
+            resultado = "OK"
+            accion = f"Cambio de estado -> paso {d['new_step_id']} ({d['new_step_name']})"
+        else:
+            resultado = "OK"
+            accion = "OK"
+
+        fill = ERR_FILL if resultado == "Error" else OK_FILL
+        vals = [i, fecha, hora, d["crq_id"] or "", d["crq_status"] or "",
+                d["crq_date"] or "", d["task_code"] or "", d["task_id"] or "",
+                resultado, accion, d["log_id"]]
+
+        for col, v in enumerate(vals, 1):
+            c = ws1.cell(row=i + 1, column=col, value=v)
+            c.fill = fill
+            c.border = THIN_BORDER
+
+    ws1.auto_filter.ref = f"A1:K{len(sorted_logs) + 1}"
+    ws1.freeze_panes = "A2"
+
+    # ── Sheet 2: Resumen por CRQ ──
+    ws2 = wb.create_sheet("Resumen por CRQ")
+    headers2 = ["#", "CRQ ID", "Novedades", "OK", "Errores", "Estados Remedy", "Ultima Accion"]
+    write_header(ws2, headers2, [5, 22, 12, 8, 8, 30, 50])
+
+    crq_groups = defaultdict(lambda: {
+        "total": 0, "ok": 0, "error": 0, "estados": set(), "last_accion": ""
+    })
+    for d in sorted_logs:
+        cid = d["crq_id"] or "?"
+        crq_groups[cid]["total"] += 1
+        is_err = d["status"] == "error" or bool(d["error_msg"])
+        if is_err:
+            crq_groups[cid]["error"] += 1
+        else:
+            crq_groups[cid]["ok"] += 1
+        if d["crq_status"]:
+            crq_groups[cid]["estados"].add(d["crq_status"])
+
+        # Build accion for last_accion
+        if is_err:
+            accion = f"Error: {d['error_msg']}" if d["error_msg"] else "Error"
+        elif d["no_status_change"]:
+            accion = "Sin cambio de estado requerido"
+        elif d["new_step_id"]:
+            accion = f"Cambio de estado -> paso {d['new_step_id']} ({d['new_step_name']})"
+        else:
+            accion = "OK"
+        crq_groups[cid]["last_accion"] = accion
+
+    for i, (cid, info) in enumerate(sorted(crq_groups.items()), 1):
+        vals = [i, cid, info["total"], info["ok"], info["error"],
+                ", ".join(sorted(info["estados"])), info["last_accion"]]
+        fill = ERR_FILL if info["error"] > 0 else OK_FILL
+        for col, v in enumerate(vals, 1):
+            c = ws2.cell(row=i + 1, column=col, value=v)
+            c.fill = fill
+            c.border = THIN_BORDER
+
+    ws2.auto_filter.ref = f"A1:G{len(crq_groups) + 1}"
+    ws2.freeze_panes = "A2"
+
+    # ── Sheet 3: Errores ──
+    ws3 = wb.create_sheet("Errores")
+    error_logs = [d for d in sorted_logs if d["status"] == "error" or d["error_msg"]]
+    headers3 = ["#", "Fecha", "Hora", "CRQ ID", "Tarea Sytex", "Error", "Log ID"]
+    write_header(ws3, headers3, [5, 12, 10, 22, 16, 60, 12])
+
+    for i, d in enumerate(error_logs, 1):
+        when = d["when"]
+        vals = [i, when[:10] if when else "", when[11:19] if len(when) > 18 else "",
+                d["crq_id"] or "", d["task_code"] or "",
+                d["error_msg"] or "(sin detalle)", d["log_id"]]
+        for col, v in enumerate(vals, 1):
+            c = ws3.cell(row=i + 1, column=col, value=v)
+            c.fill = ERR_FILL
+            c.border = THIN_BORDER
+
+    ws3.auto_filter.ref = f"A1:G{len(error_logs) + 1}"
+    ws3.freeze_panes = "A2"
+
+    wb.save(output_path)
+    return output_path
+
+
+def build_monthly_excel(all_logs_data, task_details, date_from, date_to, output_path):
+    """Build a comprehensive monthly Excel with all automations."""
+    wb = Workbook()
+
+    # ── Sheet 1: Resumen por automatizacion ──
+    ws1 = wb.active
+    ws1.title = "Resumen por automatizacion"
+    headers1 = ["Automatizacion", "Total", "OK", "Errores", "% Exito"]
+    write_header(ws1, headers1, [30, 10, 10, 10, 10])
+
+    auto_stats = defaultdict(lambda: {"total": 0, "ok": 0, "error": 0})
+    for d in all_logs_data:
+        name = d["automation_name"]
+        auto_stats[name]["total"] += 1
+        if d["status"] == "error" or d["error_msg"]:
+            auto_stats[name]["error"] += 1
+        else:
+            auto_stats[name]["ok"] += 1
+
+    row = 2
+    total_all = {"total": 0, "ok": 0, "error": 0}
+    for name, stats in sorted(auto_stats.items()):
+        pct = f"{stats['ok'] / stats['total'] * 100:.1f}%" if stats["total"] else "N/A"
+        vals = [name, stats["total"], stats["ok"], stats["error"], pct]
+        for col, v in enumerate(vals, 1):
+            c = ws1.cell(row=row, column=col, value=v)
+            c.border = THIN_BORDER
+            if stats["error"] > 0:
+                c.fill = ERR_FILL if col == 4 else OK_FILL
+        total_all["total"] += stats["total"]
+        total_all["ok"] += stats["ok"]
+        total_all["error"] += stats["error"]
+        row += 1
+
+    # Total row
+    pct = f"{total_all['ok'] / total_all['total'] * 100:.1f}%" if total_all["total"] else "N/A"
+    for col, v in enumerate(["TOTAL", total_all["total"], total_all["ok"],
+                              total_all["error"], pct], 1):
+        c = ws1.cell(row=row, column=col, value=v)
+        c.font = Font(bold=True)
+        c.border = THIN_BORDER
+
+    # ── Sheet 2: Tendencia diaria ──
+    ws2 = wb.create_sheet("Tendencia diaria")
+    headers2 = ["Fecha", "Total", "OK", "Errores", "% Exito"]
+    write_header(ws2, headers2, [14, 10, 10, 10, 10])
+
+    daily = defaultdict(lambda: {"total": 0, "ok": 0, "error": 0})
+    for d in all_logs_data:
+        day = d["when"][:10] if d["when"] else "?"
+        daily[day]["total"] += 1
+        if d["status"] == "error" or d["error_msg"]:
+            daily[day]["error"] += 1
+        else:
+            daily[day]["ok"] += 1
+
+    row = 2
+    for day in sorted(daily.keys()):
+        s = daily[day]
+        pct = f"{s['ok'] / s['total'] * 100:.1f}%" if s["total"] else "N/A"
+        vals = [day, s["total"], s["ok"], s["error"], pct]
+        for col, v in enumerate(vals, 1):
+            c = ws2.cell(row=row, column=col, value=v)
+            c.border = THIN_BORDER
+        row += 1
+
+    # ── Sheet 3: Errores detalle ──
+    ws3 = wb.create_sheet("Errores detalle")
+    error_logs = [d for d in all_logs_data if d["status"] == "error" or d["error_msg"]]
+    headers3 = ["#", "Fecha/Hora", "Automatizacion", "Tarea", "Task ID",
+                 "Paso con Error", "Error", "Log ID"]
+    write_header(ws3, headers3, [5, 20, 22, 16, 10, 30, 55, 12])
+
+    for i, d in enumerate(sorted(error_logs, key=lambda x: x["when"]), 1):
+        tid = d["task_id"]
+        td = task_details.get(str(tid), {}) if tid else {}
+        when = d["when"][:19].replace("T", " ") if d["when"] else ""
+        vals = [i, when, d["automation_name"], td.get("code", d.get("task_code", "?")),
+                tid or "", d["error_step"] or "", d["error_msg"] or "", d["log_id"]]
+        for col, v in enumerate(vals, 1):
+            c = ws3.cell(row=i + 1, column=col, value=v)
+            c.fill = ERR_FILL
+            c.border = THIN_BORDER
+
+    ws3.auto_filter.ref = f"A1:H{len(error_logs) + 1}"
+    ws3.freeze_panes = "A2"
+
+    # ── Sheet 4: Categorias de error ──
+    ws4 = wb.create_sheet("Categorias de error")
+    headers4 = ["Categoria", "Cantidad", "% del Total"]
+    write_header(ws4, headers4, [60, 12, 12])
+
+    error_cats = defaultdict(int)
+    for d in error_logs:
+        e = (d["error_msg"] or "(sin detalle)")[:80]
+        error_cats[e] += 1
+
+    row = 2
+    for cat, count in sorted(error_cats.items(), key=lambda x: -x[1]):
+        pct = f"{count / len(error_logs) * 100:.1f}%" if error_logs else "0%"
+        for col, v in enumerate([cat, count, pct], 1):
+            c = ws4.cell(row=row, column=col, value=v)
+            c.border = THIN_BORDER
+        row += 1
+
+    wb.save(output_path)
+    return output_path
+
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(description="Remedy Report Generator for TMA")
+    parser.add_argument("command", choices=["errors", "novedades", "monthly", "summary"],
+                        help="Report type")
+    parser.add_argument("--days", type=int, default=7, help="Days to look back (default 7)")
+    parser.add_argument("--date-from", help="Start date YYYY-MM-DD")
+    parser.add_argument("--date-to", help="End date YYYY-MM-DD")
+    parser.add_argument("--automations", help="Comma-separated automation UUIDs")
+    parser.add_argument("--templates", help="Comma-separated task template IDs")
+    parser.add_argument("--output", help="Output directory", default="/tmp/remedy-reports")
+    parser.add_argument("--format", choices=["excel", "json"], default="excel")
+    args = parser.parse_args()
+
+    # Date range
+    if args.date_from:
+        date_from = args.date_from
+    else:
+        date_from = (datetime.now() - timedelta(days=args.days)).strftime("%Y-%m-%d")
+    date_to = args.date_to or datetime.now().strftime("%Y-%m-%d")
+
+    # Automations filter
+    if args.automations:
+        auto_uuids = [u.strip() for u in args.automations.split(",")]
+    elif args.command == "novedades":
+        auto_uuids = ["b39ed83d-210a-416f-a1f0-3e6f2947286c"]  # Only Novedades CRQ
+    else:
+        auto_uuids = list(AUTOMATIONS.keys())
+
+    # Template filter
+    template_filter = None
+    if args.templates:
+        template_filter = [int(t.strip()) for t in args.templates.split(",")]
+
+    # Output directory
+    os.makedirs(args.output, exist_ok=True)
+
+    # Fetch step names
+    eprint("Fetching step name mappings...")
+    fetch_step_names()
+
+    # Fetch logs
+    all_logs = []
+    for uuid in auto_uuids:
+        name = AUTOMATIONS.get(uuid, uuid[:8])
+        eprint(f"Fetching logs for {name}...")
+        status_filter = "error" if args.command == "errors" else None
+        logs = fetch_automation_logs(uuid, status=status_filter,
+                                     date_from=date_from, date_to=date_to)
+        all_logs.extend(logs)
+        eprint(f"  Got {len(logs)} logs")
+
+    eprint(f"Total logs fetched: {len(all_logs)}")
+
+    # Client-side date filtering (API date params are unreliable)
+    filtered_logs = []
+    for log in all_logs:
+        when = log.get("when_executed", "")
+        if when:
+            log_date = when[:10]
+            if log_date < date_from or log_date > date_to:
+                continue
+        filtered_logs.append(log)
+    if len(filtered_logs) != len(all_logs):
+        eprint(f"After date filter ({date_from} to {date_to}): {len(filtered_logs)} logs")
+    all_logs = filtered_logs
+
+    # Extract structured data
+    logs_data = [extract_log_data(log) for log in all_logs]
+
+    # Fetch task details for unique task IDs
+    task_ids = set()
+    for d in logs_data:
+        if d["task_id"]:
+            task_ids.add(d["task_id"])
+
+    eprint(f"Fetching details for {len(task_ids)} unique tasks...")
+    task_details = {}
+    for tid in task_ids:
+        td = fetch_task_detail(tid)
+        if td:
+            task_details[str(tid)] = td
+
+            # Apply template filter
+    if template_filter:
+        filtered_data = []
+        for d in logs_data:
+            tid = d["task_id"]
+            if tid:
+                td = task_details.get(str(tid), {})
+                if td.get("template_id") in template_filter:
+                    filtered_data.append(d)
+            # Keep logs without task_id (they failed before reaching the task)
+        logs_data = filtered_data
+        eprint(f"After template filter: {len(logs_data)} logs")
+
+    # Generate output
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output = {"files": [], "summary": {}, "data": []}
+
+    if args.command == "errors":
+        error_data = [d for d in logs_data if d["status"] == "error" or d["error_msg"]]
+        if args.format == "excel":
+            path = os.path.join(args.output, f"Errores_Remedy_{date_from}_a_{date_to}.xlsx")
+            build_errors_excel(error_data, task_details, path)
+            output["files"].append(path)
+            eprint(f"Excel saved: {path}")
+
+        output["summary"] = {
+            "date_from": date_from,
+            "date_to": date_to,
+            "total_errors": len(error_data),
+            "unique_tasks": len(set(d["task_id"] for d in error_data if d["task_id"])),
+            "by_automation": dict(
+                sorted(
+                    {d["automation_name"]: sum(1 for x in error_data if x["automation_name"] == d["automation_name"])
+                     for d in error_data}.items(),
+                    key=lambda x: -x[1],
+                )
+            ),
+        }
+
+    elif args.command == "novedades":
+        if args.format == "excel":
+            path = os.path.join(args.output, f"Novedades_CRQ_{date_from}_a_{date_to}.xlsx")
+            build_novedades_excel(logs_data, path)
+            output["files"].append(path)
+            eprint(f"Excel saved: {path}")
+
+        ok_count = sum(1 for d in logs_data if d["status"] != "error" and not d["error_msg"])
+        err_count = len(logs_data) - ok_count
+        output["summary"] = {
+            "date_from": date_from,
+            "date_to": date_to,
+            "total": len(logs_data),
+            "ok": ok_count,
+            "errors": err_count,
+            "unique_crqs": len(set(d["crq_id"] for d in logs_data if d["crq_id"])),
+        }
+
+    elif args.command == "monthly":
+        if args.format == "excel":
+            path = os.path.join(args.output, f"Informe_Remedy_{date_from}_a_{date_to}.xlsx")
+            build_monthly_excel(logs_data, task_details, date_from, date_to, path)
+            output["files"].append(path)
+            eprint(f"Excel saved: {path}")
+
+        ok_count = sum(1 for d in logs_data if d["status"] != "error" and not d["error_msg"])
+        err_count = len(logs_data) - ok_count
+        output["summary"] = {
+            "date_from": date_from,
+            "date_to": date_to,
+            "total": len(logs_data),
+            "ok": ok_count,
+            "errors": err_count,
+            "by_automation": {},
+        }
+        for d in logs_data:
+            name = d["automation_name"]
+            if name not in output["summary"]["by_automation"]:
+                output["summary"]["by_automation"][name] = {"ok": 0, "error": 0}
+            if d["status"] == "error" or d["error_msg"]:
+                output["summary"]["by_automation"][name]["error"] += 1
+            else:
+                output["summary"]["by_automation"][name]["ok"] += 1
+
+    elif args.command == "summary":
+        ok_count = sum(1 for d in logs_data if d["status"] != "error" and not d["error_msg"])
+        err_count = len(logs_data) - ok_count
+        output["summary"] = {
+            "date_from": date_from,
+            "date_to": date_to,
+            "total": len(logs_data),
+            "ok": ok_count,
+            "errors": err_count,
+        }
+
+    if args.format == "json":
+        output["data"] = logs_data
+
+    print(json.dumps(output, indent=2, default=str))
+
+
+def eprint(msg):
+    """Print to stderr for progress messages."""
+    print(msg, file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
