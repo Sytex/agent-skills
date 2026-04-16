@@ -1,0 +1,9 @@
+{
+  "name": "cleanup",
+  "title": "Disk Cleanup",
+  "description": "Analyze and clean up disk space: worktrees, Docker, caches, logs, tmp files, and snap leftovers.",
+  "version": "1.0.0",
+  "fields": [],
+  "test_command": "test",
+  "files": ["cleanup", "SKILL.md"]
+}
