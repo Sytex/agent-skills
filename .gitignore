@@ -18,3 +18,7 @@ Thumbs.db
 *.log
 __pycache__/
 .DS_Store
+
+# Installer-managed binaries (downloaded on demand by cli.sh)
+installer/bin/*
+!installer/bin/.gitkeep
