@@ -15,10 +15,11 @@ Generate charts and graphs from data using matplotlib.
 | Command | Description |
 |---------|-------------|
 | `charts bar` | Bar chart (vertical or horizontal) |
-| `charts line` | Line chart for trends/time series |
+| `charts line` | Line chart for trends/time series (single or multi-series) |
 | `charts pie` | Pie chart for proportions |
 | `charts scatter` | Scatter plot for correlations |
 | `charts histogram` | Histogram for distributions |
+| `charts table` | Styled table rendered as PNG |
 | `charts help` | Show help |
 
 ## Data Input Methods
@@ -85,4 +86,13 @@ database query "SELECT date, amount FROM transactions ORDER BY date" | charts li
 
 # Age distribution histogram
 charts histogram --file users.csv --column age --bins 15 --title "User Age Distribution"
+
+# Multi-series line chart (one line per Y column)
+charts line --file revenue.csv --x month --y "product_a,product_b,product_c" --title "Revenue by Product"
+
+# Styled table from CSV
+charts table --file users.csv --title "User Report"
+
+# Table from query
+database query "SELECT id, name, email FROM users LIMIT 20" | charts table --title "Users"
 ```
