@@ -482,6 +482,33 @@ Used to build codes from concatenated values, or generate sequential codes.
 
 `zero_padding` defines the number of digits for the sequential number (stored in `utils_objectsequence` table). Set to `0` for pure concatenation without a sequential number.
 
+**Sequential with custom key and position (`sequence_ident` + `final_code`):**
+
+Use `sequence_ident` to define which segment(s) key the counter (so it only increments per that value), and `final_code` to place `{sequence}` anywhere in the resulting code — not just at the end.
+
+```json
+{
+  "type": "Code",
+  "name": "network_element_full_code",
+  "label": "Código Sitio",
+  "data": {
+    "segment_1": "input_data.country_code.code",
+    "segment_2": "input_data.region_code.code",
+    "segment_3": "input_data.ef_code.name",
+    "segment_4": "input_data.creation_year.code"
+  },
+  "sequence_ident": "{segment_1}",
+  "final_code": "{segment_1}-{segment_2}-{segment_3}-{sequence}-{segment_4}",
+  "zero_padding": 5
+}
+```
+
+Result: `TESTCR-01-NombreEF-00001-26`
+
+- `sequence_ident`: the part used as the DB counter key — here only the country code, so all sites from the same country share the counter.
+- `final_code`: the full output format; `{sequence}` is the zero-padded sequential number and can appear anywhere.
+- When using `sequence_ident` + `final_code`, do **not** use `prefix`.
+
 **Text concatenation (no sequential):**
 
 ```json
