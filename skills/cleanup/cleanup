@@ -17,6 +17,7 @@ header() { echo -e "\n${BOLD}── $* ──${NC}"; }
 
 DRY_RUN=0
 MAX_AGE=5
+FAILED_WORKTREES=()
 
 usage() {
   cat <<'EOF'
@@ -54,6 +55,27 @@ report_saved() {
   else
     echo "${saved_kb} KB"
   fi
+}
+
+# Try to remove a worktree directory, escalating through:
+#   1. git worktree remove --force
+#   2. rm -rf
+#   3. sudo rm -rf (handles root-owned Docker bind-mount stubs)
+# Returns 0 on success, 1 on failure. Never aborts the caller.
+remove_worktree_path() {
+  local master_dir=$1
+  local wt_dir=$2
+
+  if git -C "$master_dir" worktree remove --force "$wt_dir" >/dev/null 2>&1; then
+    return 0
+  fi
+  if rm -rf "$wt_dir" 2>/dev/null && [[ ! -e "$wt_dir" ]]; then
+    return 0
+  fi
+  if sudo -n rm -rf "$wt_dir" 2>/dev/null && [[ ! -e "$wt_dir" ]]; then
+    return 0
+  fi
+  return 1
 }
 
 # ── Status ─────────────────────────────────────────────────
@@ -110,6 +132,7 @@ cmd_status() {
 cmd_worktrees() {
   header "Worktree Cleanup (max age: ${MAX_AGE} days)"
   local cleaned=0
+  local failed=0
 
   for repo_dir in "$BACK_DIR" "$FRONT_DIR"; do
     local master_dir="$repo_dir/master"
@@ -147,8 +170,13 @@ cmd_worktrees() {
           fi
 
           info "Removing $repo_name/$branch ($sz, ${age_days}d old)..."
-          git -C "$master_dir" worktree remove --force "$wt_dir" 2>/dev/null || rm -rf "$wt_dir"
-          cleaned=$((cleaned + 1))
+          if remove_worktree_path "$master_dir" "$wt_dir"; then
+            cleaned=$((cleaned + 1))
+          else
+            warn "Failed to remove $repo_name/$branch — likely root-owned bind-mount paths"
+            FAILED_WORKTREES+=("$repo_name/$branch ($sz, ${age_days}d)")
+            failed=$((failed + 1))
+          fi
         fi
       fi
     done
@@ -158,6 +186,9 @@ cmd_worktrees() {
 
   if [[ $DRY_RUN -eq 0 ]]; then
     ok "Cleaned $cleaned worktree(s)"
+    if (( failed > 0 )); then
+      warn "Skipped $failed worktree(s) that could not be removed"
+    fi
   fi
 }
 
@@ -268,11 +299,13 @@ cmd_auto() {
 
   echo "=== Kadmos Cleanup — $(date '+%Y-%m-%d %H:%M %Z') ==="
 
-  cmd_worktrees
-  cmd_docker
-  cmd_cache
-  cmd_logs
-  cmd_tmp
+  # Each stage is wrapped so a failure in one stage does not abort the rest
+  # of the cron run. Individual stages already swallow most errors internally.
+  cmd_worktrees || err "worktrees stage exited non-zero (continuing)"
+  cmd_docker    || err "docker stage exited non-zero (continuing)"
+  cmd_cache     || err "cache stage exited non-zero (continuing)"
+  cmd_logs      || err "logs stage exited non-zero (continuing)"
+  cmd_tmp       || err "tmp stage exited non-zero (continuing)"
 
   if [[ $DRY_RUN -eq 0 ]]; then
     local saved
@@ -280,6 +313,17 @@ cmd_auto() {
     header "Summary"
     ok "Recovered: $saved"
     df -h / | tail -1 | awk '{printf "  Disk now: %s used (%s), %s free\n", $3, $5, $4}'
+
+    if (( ${#FAILED_WORKTREES[@]} > 0 )); then
+      warn "Worktrees skipped (manual cleanup required):"
+      for entry in "${FAILED_WORKTREES[@]}"; do
+        echo "    - $entry"
+      done
+      echo "  Hint: root-owned Docker bind-mount stubs (e.g. back/logs,"
+      echo "        back/cli/target, back/sytex.io.{crt,key}) need to be"
+      echo "        removed with sudo, or the dev setup fixed so they are"
+      echo "        pre-created with the correct ownership."
+    fi
   fi
 }
 
