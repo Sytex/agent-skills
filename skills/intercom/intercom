@@ -1,8 +1,10 @@
 #!/bin/bash
 # Intercom API CLI
 
-# Detect config directory (where this script is located)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Detect config directory from the real script path so symlinked entrypoints
+# (for example ~/.local/bin/intercom) still resolve to the "intercom" skill.
+SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 SKILL_NAME="$(basename "$SCRIPT_DIR")"
 CONFIG_FILE="$HOME/.agent-skills/$SKILL_NAME/.env"
 
