@@ -55,6 +55,15 @@ cleanup worktrees --dry-run
 5. The `auto` command only removes worktrees older than 5 days by default
 6. Always show a summary of what was cleaned and space recovered
 
+## Resilience
+
+A single failing worktree (e.g. root-owned Docker bind-mount stubs like
+`back/logs`, `back/cli/target`, `back/sytex.io.{crt,key}`) must never abort the
+full `auto` run. Removal escalates through `git worktree remove --force`,
+`rm -rf`, and `sudo -n rm -rf`. Worktrees that still cannot be removed are
+recorded and listed in the final summary so they can be handled manually,
+while the remaining cleanup stages (Docker, cache, logs, tmp) still run.
+
 ## Cron Integration
 
 The cleanup runs daily at 03:00 ART (06:00 UTC) via crontab:
