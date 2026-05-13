@@ -5,7 +5,17 @@ description: Read-only access to configured databases for schema inspection and 
 
 # Database Skill
 
-You now have **read-only** access to multiple databases through the `database` command. This skill supports connecting to production, staging, local, or any other configured database.
+You now have **read-only** access to multiple databases through the bundled `database` executable. This skill supports connecting to any configured database connection.
+
+Always assume the executable is **not** installed on `PATH`. Before running database commands, locate this skill's directory and run the bundled executable from there:
+
+```bash
+./database help
+```
+
+If your current working directory is not the skill directory, use the absolute path to the skill's `database` executable. This applies across Codex, Claude Code, and other shell-based agent environments.
+
+All command examples below use `./database` and assume the shell is already in the database skill directory.
 
 ## Important Safety Rules
 
@@ -20,54 +30,70 @@ You now have **read-only** access to multiple databases through the `database` c
 ### Managing Multiple Databases
 
 ```bash
-database dbs
+./database dbs
 ```
 List all configured database connections with their connection status. Shows which database is currently active.
 
-**Using a specific database:**
+**Using a specific connection and schema:**
 ```bash
-database --db production <command>
-database --db staging query "SELECT * FROM tasks"
-database --db local tables
+./database --db <connection-name> <command>
+./database --db <connection-name> --database <schema-name> query "SELECT * FROM tasks"
+./database --db <connection-name> --database <schema-name> tables
 ```
 
-If you don't specify `--db`, the default database will be used (usually the first one configured).
+If you don't specify `--db`, the default connection will be used (usually the first one configured).
+
+Important terminology:
+- `--db <connection-name>` selects the configured connection/environment.
+- `--database <schema-name>` selects the actual MySQL/MariaDB database/schema on that connection.
+
+If a command returns `No database selected`, keep the same `--db` value and add `--database <schema-name>`. Use `show-databases` to discover available schemas:
+
+```bash
+./database --db <connection-name> show-databases
+```
 
 ### Connection Testing
 ```bash
-database test
+./database test
 ```
 Test database connectivity and show connection details for the active database.
 
 ```bash
-database --db staging test
+./database --db <connection-name> test
 ```
 Test connection to a specific database.
 
 ### Database Exploration
 ```bash
-database tables
+./database tables
 ```
 List all tables in the database.
 
+If the selected connection does not have a default schema configured, include `--database <schema-name>`:
+
 ```bash
-database describe <table_name>
+./database --db <connection-name> --database <schema-name> tables
+```
+
+```bash
+./database describe <table_name>
 ```
 Show the schema (columns, types) and indexes for a specific table.
 
 ```bash
-database stats
+./database stats
 ```
 Show database statistics including row counts for all tables.
 
 ### Custom Queries
 ```bash
-database query "SELECT * FROM tasks WHERE status = 'open' LIMIT 10"
+./database query "SELECT * FROM tasks WHERE status = 'open' LIMIT 10"
 ```
 Execute a custom SELECT query. Returns results in table format.
 
 ```bash
-database query "SELECT COUNT(*) FROM users" json
+./database query "SELECT COUNT(*) FROM users" json
 ```
 Execute a query and return results in JSON format (useful for parsing).
 
@@ -76,11 +102,25 @@ Supported formats:
 - `json` - JSON array of objects
 - `csv` - Comma-separated values
 
+Format is a positional argument after the SQL string, not a global flag. Do this:
+
+```bash
+./database --database <schema-name> query "SELECT COUNT(*) FROM users" json
+```
+
+Do not do this:
+
+```bash
+./database --database <schema-name> query "SELECT COUNT(*) FROM users" --json
+```
+
+Some installed MySQL clients do not support JSON output. If `json` returns an error such as `unknown option '--json'`, rerun the query using the default table output or `csv`.
+
 ## Usage Guidelines
 
 ### When to Use This Skill
 
-Use `database` when you need to:
+Use this skill when you need to:
 - Investigate data issues or bugs
 - Answer questions about production data
 - Generate reports or statistics
@@ -92,8 +132,8 @@ Use `database` when you need to:
 
 1. **Start with exploration**: Use `tables` and `describe` to understand the schema
 2. **Use LIMIT**: Always limit results to avoid overwhelming output
-3. **Use predefined queries**: When available, use shortcuts like `database tasks` instead of raw SQL
-4. **Test connectivity**: If queries fail, run `database test` to check connection
+3. **Use the right selector flags**: Use `--db` for the configured connection and `--database` for the schema
+4. **Test connectivity**: If queries fail, run `./database test` to check connection
 5. **Be specific**: Include relevant WHERE clauses to filter data
 6. **Protect sensitive data**: Don't expose passwords, tokens, or PII unnecessarily
 
@@ -115,7 +155,7 @@ This prevents column name errors and ensures your queries work correctly.
 **❌ WRONG - Don't do this:**
 ```bash
 # Directly querying without checking schema
-database query "SELECT id, name, status FROM projects_task LIMIT 5"
+./database query "SELECT id, name, status FROM projects_task LIMIT 5"
 # Error: Unknown column 'status' - should be 'status_id'
 ```
 
@@ -123,28 +163,35 @@ database query "SELECT id, name, status FROM projects_task LIMIT 5"
 
 ```bash
 # Step 1: Check the schema first
-database describe projects_task
+./database describe projects_task
 
 # Step 2: Review the output to see actual columns
 # Output shows: id, code, name, status_id, plan_date, etc.
 
 # Step 3: Write query with correct column names
-database query "SELECT id, code, name, status_id, plan_date FROM projects_task LIMIT 5"
+./database query "SELECT id, code, name, status_id, plan_date FROM projects_task LIMIT 5"
+```
+
+If your connection needs an explicit schema, include it consistently:
+
+```bash
+./database --db <connection-name> --database <schema-name> describe projects_task
+./database --db <connection-name> --database <schema-name> query "SELECT id, code FROM projects_task LIMIT 5"
 ```
 
 #### Real Example with JOINs:
 
 ```bash
 # Step 1: Check both table schemas
-database describe sytexauth_user
-database describe people_profile
+./database describe sytexauth_user
+./database describe people_profile
 
 # Step 2: Identify join columns and field names
 # sytexauth_user has: id, email, profile_id
 # people_profile has: id, name
 
 # Step 3: Write the JOIN query correctly
-database query "
+./database query "
 SELECT u.id, u.email, p.name
 FROM sytexauth_user u
 JOIN people_profile p ON u.profile_id = p.id
@@ -156,61 +203,60 @@ WHERE u.id = 1
 
 ```bash
 # List all tables
-database tables
+./database tables
 
 # Describe a specific table (shows columns, types, keys)
-database describe projects_task
+./database describe projects_task
 
 # Describe multiple tables before complex queries
-database describe sytexauth_user
-database describe people_profile
-database describe projects_project
+./database describe sytexauth_user
+./database describe people_profile
+./database describe projects_project
 ```
 
 ### Working with Multiple Databases
 
-When you have multiple databases configured (e.g., production, staging, local), you can easily switch between them:
+When you have multiple database connections configured, you can easily switch between them:
 
 ```bash
-# List all configured databases
-database dbs
+# List all configured connections
+./database dbs
 
 # Compare data between environments
-database --db production query "SELECT COUNT(*) FROM projects_task"
-database --db staging query "SELECT COUNT(*) FROM projects_task"
+./database --db <connection-a> --database <schema-name> query "SELECT COUNT(*) FROM projects_task"
+./database --db <connection-b> --database <schema-name> query "SELECT COUNT(*) FROM projects_task"
 
 # Check schema differences
-database --db production describe projects_task
-database --db staging describe projects_task
+./database --db <connection-a> --database <schema-name> describe projects_task
+./database --db <connection-b> --database <schema-name> describe projects_task
 
-# Debug issues by checking production vs staging
-database --db production query "SELECT * FROM projects_task WHERE id = 47515"
-database --db staging query "SELECT * FROM projects_task WHERE id = 47515"
+# Debug issues by checking the same record in two connections
+./database --db <connection-a> --database <schema-name> query "SELECT * FROM projects_task WHERE id = 47515"
+./database --db <connection-b> --database <schema-name> query "SELECT * FROM projects_task WHERE id = 47515"
 
-# Test queries in staging before running in production
-database --db staging query "SELECT COUNT(*) FROM users WHERE last_activity > NOW() - INTERVAL 30 DAY"
-# If it works, run in production:
-database --db production query "SELECT COUNT(*) FROM users WHERE last_activity > NOW() - INTERVAL 30 DAY"
+# Test queries in one environment before running in another
+./database --db <connection-a> --database <schema-name> query "SELECT COUNT(*) FROM users WHERE last_activity > NOW() - INTERVAL 30 DAY"
+./database --db <connection-b> --database <schema-name> query "SELECT COUNT(*) FROM users WHERE last_activity > NOW() - INTERVAL 30 DAY"
 ```
 
 **Default Database:**
-If you don't specify `--db`, the first configured database is used by default. You can set a default by configuring `SYTEXDB_DEFAULT_DB` in your .env file.
+If you don't specify `--db`, the first configured connection is used by default. A connection may still require `--database <schema-name>` if no default schema is configured.
 
 ### Query Examples
 
 **Find tasks by status:**
 ```bash
-database query "SELECT id, title, status FROM tasks WHERE status = 'in_progress' LIMIT 10"
+./database query "SELECT id, title, status FROM tasks WHERE status = 'in_progress' LIMIT 10"
 ```
 
 **Count records by type:**
 ```bash
-database query "SELECT status, COUNT(*) as count FROM tasks GROUP BY status"
+./database query "SELECT status, COUNT(*) as count FROM tasks GROUP BY status"
 ```
 
 **Join queries:**
 ```bash
-database query "
+./database query "
 SELECT t.title, p.name as project_name
 FROM tasks t
 JOIN projects p ON t.project_id = p.id
@@ -220,22 +266,40 @@ LIMIT 10
 
 **Check specific record:**
 ```bash
-database query "SELECT * FROM tasks WHERE id = 12345"
+./database query "SELECT * FROM tasks WHERE id = 12345"
 ```
 
 ## Troubleshooting
 
 ### Connection Errors
 If you get connection errors:
-1. Run `database test` to verify credentials
+1. Run `./database test` to verify credentials
 2. Check that database host is accessible
 3. Verify database user has SELECT permissions
 
+### Command Location
+Do not assume a `database` command exists on `PATH`. Locate the skill directory and run `./database ...`, or use the absolute path to the skill's `database` executable. This is common when using the same skill across different agents such as Codex and Claude Code.
+
+### No Database Selected
+If you get `No database selected`, you selected a connection but not a schema. Add `--database <schema-name>`:
+
+```bash
+./database --db <connection-name> --database <schema-name> tables
+./database --db <connection-name> --database <schema-name> query "SELECT * FROM projects_task LIMIT 5"
+```
+
+If you do not know the schema name:
+
+```bash
+./database --db <connection-name> show-databases
+```
+
 ### Query Errors
 - **Syntax errors**: Double-check SQL syntax
-- **Table doesn't exist**: Use `database tables` to see available tables
-- **Column doesn't exist**: Use `database describe <table>` to see columns
+- **Table doesn't exist**: Use `./database tables` to see available tables
+- **Column doesn't exist**: Use `./database describe <table>` to see columns
 - **Blocked query**: Only SELECT queries allowed - modify your query to read-only
+- **JSON output fails**: Some MySQL clients do not support `--json`; rerun without `json` or use `csv`
 
 ### Missing mysql Client
 If you get "mysql client not found":
@@ -254,10 +318,10 @@ If you get "mysql client not found":
 
 For command usage:
 ```bash
-database help
+./database help
 ```
 
 For table-specific information:
 ```bash
-database describe <table_name>
+./database describe <table_name>
 ```

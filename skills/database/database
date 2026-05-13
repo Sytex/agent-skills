@@ -42,7 +42,7 @@ cmd_help() {
 ${BLUE}Database - Read-only MySQL/MariaDB Client${NC}
 
 ${YELLOW}Usage:${NC}
-  database [--db <connection>] [--database <dbname>] <command> [arguments]
+  ./database [--db <connection>] [--database <dbname>] <command> [arguments]
 
 ${YELLOW}Commands:${NC}
   ${GREEN}dbs${NC}                     List configured database connections
@@ -55,18 +55,19 @@ ${YELLOW}Commands:${NC}
   ${GREEN}help${NC}                    Show this help message
 
 ${YELLOW}Examples:${NC}
-  database dbs                                                      # List connections
-  database test                                                     # Test connection
-  database --db local show-databases                                # List databases
-  database --db local --database sytex_telesoluciones tables        # List tables
-  database --db local --database sytex_telesoluciones describe projects_task
-  database --db local --database sytex_telesoluciones query "SELECT * FROM projects_task LIMIT 5"
-  database --db local --database sytex_telesoluciones stats
+  ./database dbs                                                      # List connections
+  ./database test                                                     # Test connection
+  ./database --db <connection-name> show-databases                    # List databases
+  ./database --db <connection-name> --database <schema-name> tables   # List tables
+  ./database --db <connection-name> --database <schema-name> describe projects_task
+  ./database --db <connection-name> --database <schema-name> query "SELECT * FROM projects_task LIMIT 5"
+  ./database --db <connection-name> --database <schema-name> stats
 
 ${YELLOW}Notes:${NC}
   - Only SELECT, SHOW, DESCRIBE, and EXPLAIN queries are allowed
   - All queries are read-only for safety
-  - Use --db flag to select a specific database, otherwise the default is used
+  - Use --db to select a configured connection
+  - Use --database to select the MySQL/MariaDB database/schema on that connection
 EOF
 }
 
