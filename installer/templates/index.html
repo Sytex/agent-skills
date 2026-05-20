@@ -1334,7 +1334,8 @@
                 if (!dep.installed && dep.install_command) {
                     html += '<div class="dependency-cmd">';
                     html += `<code>${escapeHtml(dep.install_command)}</code>`;
-                    html += `<button class="copy-btn" onclick="copyToClipboard('${escapeHtml(dep.install_command)}')">Copy</button>`;
+                    html += `<button class="copy-btn" onclick="installDependencies()">Install</button>`;
+                    html += `<button class="copy-btn" onclick="copyToClipboard(${JSON.stringify(dep.install_command)})">Copy</button>`;
                     html += '</div>';
                 }
             }
@@ -1351,6 +1352,18 @@
             }).catch(() => {
                 showToast('Failed to copy', 'error');
             });
+        }
+
+        async function installDependencies() {
+            showToast('Installing dependencies...');
+            const response = await fetch(`${API}/skills/${currentSkill.id}/dependencies/install`, { method: 'POST' }).catch(() => null);
+            if (!response || !response.ok) {
+                const result = response ? await response.json().catch(() => ({})) : {};
+                showToast(result.error || 'Failed to install dependencies', 'error');
+                return;
+            }
+            showToast('Dependencies installed');
+            await refreshSkill();
         }
 
         // Render modal content

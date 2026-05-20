@@ -24,8 +24,7 @@ Use the CLI when the task asks to:
 Prefer an installed `impleload` on `PATH`. To install the released CLI:
 
 ```bash
-mkdir -p "$HOME/.local/bin"
-curl -fsSL https://impleload.sytex.io/static/cli/install.sh | IMPLELOAD_CLI_INSTALL_DIR="$HOME/.local/bin" bash
+bash -lc 'set -euo pipefail; mkdir -p "$HOME/.local/bin"; curl -fsSL https://impleload.sytex.io/static/cli/install.sh | IMPLELOAD_CLI_INSTALL_DIR="$HOME/.local/bin" bash'
 ```
 
 The installer detects the user's OS and CPU architecture and downloads the matching release binary. If `impleload` is still not found after installation, use `$HOME/.local/bin/impleload` (or `$HOME/.local/bin/impleload.exe` on Windows/Git Bash) or add `$HOME/.local/bin` to `PATH`.

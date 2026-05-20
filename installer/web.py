@@ -288,6 +288,61 @@ def check_dependencies(skill_data):
     }
 
 
+def install_dependencies(skill_data):
+    """Install missing skill dependencies for the current OS."""
+    deps = skill_data.get("dependencies", [])
+    if not deps:
+        return {"success": True, "message": "No dependencies to install", "installed": []}
+
+    os_name = get_os()
+    installed = []
+    errors = []
+
+    for dep in deps:
+        name = dep.get("name", "Unknown")
+        check_cmd = dep.get("check", "")
+        install_cmd = dep.get("install", {}).get(os_name, "")
+
+        if check_cmd:
+            check = subprocess.run(check_cmd, shell=True, capture_output=True, text=True)
+            if check.returncode == 0:
+                continue
+
+        if not install_cmd:
+            errors.append(f"No install command for {name} on {os_name}")
+            continue
+
+        result = subprocess.run(install_cmd, shell=True, capture_output=True, text=True)
+        output = (result.stdout or "") + (result.stderr or "")
+        if result.returncode != 0:
+            errors.append(f"{name} install failed:\n{output.strip()}")
+            continue
+
+        if check_cmd:
+            check = subprocess.run(check_cmd, shell=True, capture_output=True, text=True)
+            if check.returncode != 0:
+                check_output = (check.stdout or "") + (check.stderr or "")
+                errors.append(
+                    f"{name} installed but check still fails:\n{check_output.strip()}"
+                )
+                continue
+
+        installed.append(name)
+
+    if errors:
+        return {
+            "success": False,
+            "error": "\n\n".join(errors),
+            "installed": installed,
+        }
+
+    return {
+        "success": True,
+        "message": "Dependencies installed",
+        "installed": installed,
+    }
+
+
 def compute_skill_checksum(skill_id, skill_data):
     """Compute checksum of skill files in the repo."""
     skill_dir = SKILLS_DIR / skill_id
@@ -998,6 +1053,18 @@ class RequestHandler(http.server.BaseHTTPRequestHandler):
             return
 
         skills = {s["id"]: s for s in get_skills()}
+
+        if path.startswith("/api/skills/") and path.endswith("/dependencies/install"):
+            skill_id = path.split("/")[3]
+            if skill_id in skills:
+                result = install_dependencies(skills[skill_id])
+                if result.get("success"):
+                    self.send_json(result)
+                    return
+                self.send_json(result, 400)
+                return
+            self.send_json({"error": "Skill not found"}, 404)
+            return
 
         if path.startswith("/api/skills/") and "/install/" in path:
             # Install to specific provider: /api/skills/{id}/install/{provider}

@@ -9,9 +9,9 @@
       "name": "impleload CLI",
       "check": "command -v impleload || command -v impleload.exe || test -x \"$HOME/.local/bin/impleload\" || test -x \"$HOME/.local/bin/impleload.exe\"",
       "install": {
-        "darwin": "mkdir -p \"$HOME/.local/bin\" && curl -fsSL https://impleload.sytex.io/static/cli/install.sh | IMPLELOAD_CLI_INSTALL_DIR=\"$HOME/.local/bin\" bash",
-        "linux": "mkdir -p \"$HOME/.local/bin\" && curl -fsSL https://impleload.sytex.io/static/cli/install.sh | IMPLELOAD_CLI_INSTALL_DIR=\"$HOME/.local/bin\" bash",
-        "windows": "mkdir -p \"$HOME/.local/bin\" && curl -fsSL https://impleload.sytex.io/static/cli/install.sh | IMPLELOAD_CLI_INSTALL_DIR=\"$HOME/.local/bin\" bash"
+        "darwin": "bash -lc 'set -euo pipefail; mkdir -p \"$HOME/.local/bin\"; curl -fsSL https://impleload.sytex.io/static/cli/install.sh | IMPLELOAD_CLI_INSTALL_DIR=\"$HOME/.local/bin\" bash'",
+        "linux": "bash -lc 'set -euo pipefail; mkdir -p \"$HOME/.local/bin\"; curl -fsSL https://impleload.sytex.io/static/cli/install.sh | IMPLELOAD_CLI_INSTALL_DIR=\"$HOME/.local/bin\" bash'",
+        "windows": "bash -lc 'set -euo pipefail; mkdir -p \"$HOME/.local/bin\"; curl -fsSL https://impleload.sytex.io/static/cli/install.sh | IMPLELOAD_CLI_INSTALL_DIR=\"$HOME/.local/bin\" bash'"
       }
     }
   ],
