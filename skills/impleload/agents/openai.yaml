@@ -1,0 +1,4 @@
+interface:
+  display_name: "Impleload"
+  short_description: "Operate Impleload via CLI"
+  default_prompt: "Use $impleload to choose and run the correct Impleload CLI command for activities, worklogs, or authentication."

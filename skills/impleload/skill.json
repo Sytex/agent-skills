@@ -1,0 +1,38 @@
+{
+  "name": "impleload",
+  "title": "Impleload",
+  "description": "Operate Impleload implementation workload data from the CLI.",
+  "version": "1.0.0",
+  "setup_instructions": "Configure IMPLELOAD_AGENT_TOKEN only when the agent should use token-based agent auth. OAuth is also supported by running `impleload auth login` before asking the agent to make changes.",
+  "dependencies": [
+    {
+      "name": "impleload CLI",
+      "check": "command -v impleload || command -v impleload.exe || test -x \"$HOME/.local/bin/impleload\" || test -x \"$HOME/.local/bin/impleload.exe\"",
+      "install": {
+        "darwin": "mkdir -p \"$HOME/.local/bin\" && curl -fsSL https://impleload.sytex.io/static/cli/install.sh | IMPLELOAD_CLI_INSTALL_DIR=\"$HOME/.local/bin\" bash",
+        "linux": "mkdir -p \"$HOME/.local/bin\" && curl -fsSL https://impleload.sytex.io/static/cli/install.sh | IMPLELOAD_CLI_INSTALL_DIR=\"$HOME/.local/bin\" bash",
+        "windows": "mkdir -p \"$HOME/.local/bin\" && curl -fsSL https://impleload.sytex.io/static/cli/install.sh | IMPLELOAD_CLI_INSTALL_DIR=\"$HOME/.local/bin\" bash"
+      }
+    }
+  ],
+  "fields": [
+    {
+      "name": "base_url",
+      "label": "Backend URL",
+      "type": "text",
+      "required": false,
+      "default": "https://impleload.sytex.io",
+      "env_var": "IMPLELOAD_BASE_URL",
+      "help": "Optional backend URL used by the CLI. Leave the production default unless targeting dev or staging."
+    },
+    {
+      "name": "agent_token",
+      "label": "Agent Token",
+      "type": "password",
+      "required": false,
+      "env_var": "IMPLELOAD_AGENT_TOKEN",
+      "help": "Optional token for token-based agent auth. If configured, commands must still provide exactly one actor with --actor-email or --actor-discord-user, or the matching environment variable."
+    }
+  ],
+  "files": ["SKILL.md"]
+}
