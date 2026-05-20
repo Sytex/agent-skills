@@ -689,6 +689,7 @@ check_dependencies() {
 
     local os=$(get_os)
     local missing_deps=()
+    local dep_separator=$'\t'
 
     for ((i=0; i<deps_count; i++)); do
         local dep_json name check_cmd install_cmd
@@ -699,7 +700,7 @@ check_dependencies() {
         install_cmd=$(echo "$dep_json" | python3 -c "import json,sys; print(json.load(sys.stdin).get('install',{}).get('$os',''))")
 
         if [[ -n "$check_cmd" ]] && ! eval "$check_cmd" &>/dev/null; then
-            missing_deps+=("$name|$install_cmd")
+            missing_deps+=("${name}${dep_separator}${install_cmd}")
         fi
     done
 
@@ -708,15 +709,15 @@ check_dependencies() {
     echo ""
     style yellow "Missing dependencies:"
     for dep in "${missing_deps[@]}"; do
-        local dep_name="${dep%%|*}"
+        local dep_name="${dep%%"$dep_separator"*}"
         echo -e "  ${RED}✗${NC} $dep_name"
     done
     echo ""
 
     if confirm "Install missing dependencies?"; then
         for dep in "${missing_deps[@]}"; do
-            local dep_name="${dep%%|*}"
-            local dep_install="${dep##*|}"
+            local dep_name="${dep%%"$dep_separator"*}"
+            local dep_install="${dep#*"$dep_separator"}"
 
             if [[ -z "$dep_install" ]]; then
                 style red "No install command for $dep_name on $os"
