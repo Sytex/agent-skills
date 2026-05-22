@@ -7,6 +7,7 @@ Skills for AI coding agents by the Sytex team.
 | Skill                                       | Description                                                 |
 | ------------------------------------------- | ----------------------------------------------------------- |
 | [gmail](./skills/gmail)                     | Read Gmail messages via IMAP                                |
+| [intercom](./skills/intercom)               | Read Intercom conversations and leave internal notes (no customer-visible replies) |
 | [issue-resolution](./skills/issue-resolution) | End-to-end workflow for resolving user-reported problems  |
 | [linear](./skills/linear)                   | Manage issues and projects                                  |
 | [pipedrive](./skills/pipedrive)             | Manage deals, contacts, and sales pipeline                  |

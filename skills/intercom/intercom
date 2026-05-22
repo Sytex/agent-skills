@@ -169,12 +169,6 @@ cmd_contact_update() {
     api_put "/contacts/$id" "{\"$field\":\"$value\"}"
 }
 
-cmd_contact_delete() {
-    local id="$1"
-    [[ -z "$id" ]] && echo "Error: contact ID required" && exit 1
-    api_delete "/contacts/$id"
-}
-
 # === CONVERSATIONS ===
 
 # Resolve contact ID from email or name
@@ -243,19 +237,6 @@ cmd_conversations_search() {
         "{\"query\":{\"operator\":\"OR\",\"value\":[{\"field\":\"source.body\",\"operator\":\"~\",\"value\":\"$query\"},{\"field\":\"statistics.first_response_time\",\"operator\":\">\",\"value\":0}]},\"pagination\":{\"per_page\":$limit},\"sort\":{\"field\":\"updated_at\",\"order\":\"desc\"}}"
 }
 
-cmd_conversation_reply() {
-    local id="$1"
-    local message="$2"
-
-    [[ -z "$id" ]] && echo "Error: conversation ID required" && exit 1
-    [[ -z "$message" ]] && echo "Error: message required" && exit 1
-
-    local admin_id
-    admin_id=$(api_get "/me" | json_value "id")
-
-    api_post "/conversations/$id/reply" "{\"message_type\":\"comment\",\"type\":\"admin\",\"admin_id\":\"$admin_id\",\"body\":\"$message\"}"
-}
-
 cmd_conversation_note() {
     local id="$1"
     local message="$2"
@@ -267,22 +248,6 @@ cmd_conversation_note() {
     admin_id=$(api_get "/me" | json_value "id")
 
     api_post "/conversations/$id/reply" "{\"message_type\":\"note\",\"type\":\"admin\",\"admin_id\":\"$admin_id\",\"body\":\"$message\"}"
-}
-
-cmd_conversation_close() {
-    local id="$1"
-    [[ -z "$id" ]] && echo "Error: conversation ID required" && exit 1
-    local admin_id
-    admin_id=$(api_get "/me" | json_value "id")
-    api_post "/conversations/$id/parts" "{\"message_type\":\"close\",\"type\":\"admin\",\"admin_id\":\"$admin_id\"}"
-}
-
-cmd_conversation_open() {
-    local id="$1"
-    [[ -z "$id" ]] && echo "Error: conversation ID required" && exit 1
-    local admin_id
-    admin_id=$(api_get "/me" | json_value "id")
-    api_post "/conversations/$id/parts" "{\"message_type\":\"open\",\"type\":\"admin\",\"admin_id\":\"$admin_id\"}"
 }
 
 # === COMPANIES ===
@@ -449,7 +414,6 @@ show_help() {
     echo "    --phone <phone>                   Phone number"
     echo "    --role <user|lead>                Contact role (default: user)"
     echo "  contact-update <id> <field> <val>   Update contact field"
-    echo "  contact-delete <id>                 Delete contact"
     echo ""
     echo "CONVERSATIONS:"
     echo "  conversations [flags]               List recent conversations"
@@ -461,9 +425,6 @@ show_help() {
     echo "  conversation <id>                   Get full conversation with all messages"
     echo "  conversations-search <query>        Search conversations by content"
     echo "  conversation-note <id> <text>       Add internal note (only visible to team)"
-    echo "  conversation-reply <id> <message>   Reply to conversation (visible to user)"
-    echo "  conversation-close <id>             Close conversation"
-    echo "  conversation-open <id>              Reopen conversation"
     echo ""
     echo "COMPANIES:"
     echo "  companies                           List companies"
@@ -503,14 +464,31 @@ case "$1" in
     contact) cmd_contact "$2" ;;
     contact-create) shift; cmd_contact_create "$@" ;;
     contact-update) cmd_contact_update "$2" "$3" "$4" ;;
-    contact-delete) cmd_contact_delete "$2" ;;
+    contact-delete)
+        echo "Error: 'contact-delete' is disabled in this skill." >&2
+        echo "Contact deletion must be performed by a human via the Intercom UI." >&2
+        exit 1
+        ;;
     conversations) shift; cmd_conversations "$@" ;;
     conversation) cmd_conversation "$2" ;;
     conversations-search) cmd_conversations_search "$2" "$3" ;;
     conversation-note) cmd_conversation_note "$2" "$3" ;;
-    conversation-reply) cmd_conversation_reply "$2" "$3" ;;
-    conversation-close) cmd_conversation_close "$2" ;;
-    conversation-open) cmd_conversation_open "$2" ;;
+    conversation-reply)
+        echo "Error: 'conversation-reply' is disabled. Agents using this skill can only leave internal notes on Intercom conversations." >&2
+        echo "Use: intercom conversation-note <id> <message>   (visible only to the team)" >&2
+        echo "Customer-visible replies must be sent by a human from Intercom." >&2
+        exit 1
+        ;;
+    conversation-close)
+        echo "Error: 'conversation-close' is disabled. Closing a conversation is visible to the customer." >&2
+        echo "Leave an internal note with 'intercom conversation-note <id> <message>' and let a human close it." >&2
+        exit 1
+        ;;
+    conversation-open)
+        echo "Error: 'conversation-open' is disabled. Reopening a conversation is visible to the customer." >&2
+        echo "Leave an internal note with 'intercom conversation-note <id> <message>' and let a human reopen it." >&2
+        exit 1
+        ;;
     companies) cmd_companies ;;
     company) cmd_company "$2" ;;
     company-create) shift; cmd_company_create "$@" ;;
