@@ -9,6 +9,24 @@ allowed-tools:
 
 Access and manage Intercom conversations, contacts, and tickets.
 
+## Safety: this skill cannot reply to end users
+
+Agents using this skill **cannot send messages visible to the customer**, and
+**cannot close, reopen, or delete** Intercom records that the customer can see.
+The corresponding commands are disabled at the CLI level and will exit with an
+error if invoked:
+
+- `conversation-reply` (customer-visible reply)
+- `conversation-close`, `conversation-open` (state changes visible to the customer)
+- `contact-delete` (destructive)
+
+To respond to the customer, leave an internal note with the suggested text and
+let a human send the reply from Intercom:
+
+```bash
+intercom conversation-note <id> "Suggested response: ..."
+```
+
 ## Support Investigation Workflow
 
 When asked to investigate an issue or help with a support conversation:
@@ -52,9 +70,9 @@ Use the `sytex` or `sytex-reports` skill to understand the technical context:
 intercom conversation-note <id> "Suggested response: ..."
 ```
 
-**Note vs Reply:**
-- `conversation-note` → internal note, **only visible to the support team**
-- `conversation-reply` → message sent to the user
+Only `conversation-note` is available — it creates an internal note visible
+only to the support team. Customer-visible replies must be sent by a human
+from Intercom.
 
 ---
 
@@ -73,9 +91,6 @@ intercom conversation-note <id> "Suggested response: ..."
 | `conversation <id>` | Full conversation with all messages |
 | `conversations-search <query>` | Search conversations by content |
 | `conversation-note <id> <text>` | Add internal note (team only) |
-| `conversation-reply <id> <text>` | Reply to user (visible to user) |
-| `conversation-close <id>` | Close conversation |
-| `conversation-open <id>` | Reopen conversation |
 
 ### Contacts
 
@@ -87,7 +102,6 @@ intercom conversation-note <id> "Suggested response: ..."
 | `search <query>` | Search contacts by name or email |
 | `contact-create <email>` | Create contact |
 | `contact-update <id> <field> <value>` | Update contact field |
-| `contact-delete <id>` | Delete contact |
 
 ### Companies
 
@@ -130,7 +144,4 @@ intercom conversations-search "formulario no carga"
 
 # Leave internal note with suggested response
 intercom conversation-note 12345 "Sugerencia: el problema es X. Responder con Y."
-
-# Reply to the user (only when ready)
-intercom conversation-reply 12345 "Hola! Investigamos el problema y..."
 ```
