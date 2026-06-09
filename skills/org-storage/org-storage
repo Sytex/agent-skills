@@ -49,6 +49,19 @@ ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 CONN_RE = re.compile(r"^\s*●\s+(\S+)(.*)$")
 # Prefer connections whose slug clearly denotes a read-only / reader endpoint.
 READONLY_SLUG_RE = re.compile(r"(reader|replica|read[-_]?only|readonly|\bro\b|[-_]ro$)", re.I)
+# Aurora reader endpoints carry `cluster-ro-` in the host; also catch generic markers.
+# This matters because a connection's slug may be neutral (e.g. "prod-us") while its
+# host is unmistakably the reader (…cluster-ro-….rds.amazonaws.com).
+READONLY_HOST_RE = re.compile(r"(cluster-ro-|[-.]ro[-.]|reader|replica|read[-_]?only)", re.I)
+
+# The org registry (organizations_organization) and shared_file both live in this DB.
+# The `database` connection on the EC2 has no default DB configured, so fall back to
+# this; override with --database for other deployments.
+DEFAULT_DB = "sytex_app"
+
+# mysql/mariadb prints diagnostics ("mysql: [Warning] Using a password …") that the
+# `database` CLI merges into stdout via 2>&1. Drop these so they aren't parsed as rows.
+DIAG_LINE_RE = re.compile(r"^(mysql|mariadb): ", re.I)
 
 DBS_TIMEOUT = 30  # seconds — listing connections runs a quick SELECT 1 per conn
 
@@ -128,6 +141,14 @@ def list_connections(db_cli):
     return conns
 
 
+def is_readonly(conn):
+    """True if the connection's slug or host marks it as a read-only/reader endpoint."""
+    return bool(
+        READONLY_SLUG_RE.search(conn.get("slug", ""))
+        or READONLY_HOST_RE.search(conn.get("host", ""))
+    )
+
+
 def choose_connection(conns, forced_slug=None):
     """Pick which connection to use, preferring a read-only-looking one."""
     if forced_slug:
@@ -141,12 +162,18 @@ def choose_connection(conns, forced_slug=None):
             "no database connections are configured in the `database` skill. "
             "Run `database dbs` to check, or configure a connection."
         )
-    readonly = [c for c in conns if READONLY_SLUG_RE.search(c["slug"])]
+    readonly = [c for c in conns if is_readonly(c)]
     pool = readonly or conns
     for c in pool:
         if c["active"]:
             return c
     return pool[0]
+
+
+def print_connection(conn, db_name):
+    """Report the connection used, flagging the read-only endpoint for auditability."""
+    ro = " [read-only ✓]" if is_readonly(conn) else ""
+    print(f"connection: {conn['slug']} (host={conn.get('host') or '?'}, db={db_name}){ro}")
 
 
 def run_query(db_cli, conn, db_name, sql, timeout):
@@ -176,7 +203,7 @@ def run_query(db_cli, conn, db_name, sql, timeout):
         raise RuntimeError(detail)
     rows = []
     for line in out.splitlines():
-        if line == "":
+        if line == "" or DIAG_LINE_RE.match(line):
             continue
         rows.append(line.split("\t"))
     return rows
@@ -221,17 +248,8 @@ def cmd_resolve(args):
     db_cli = find_database_cli()
     conns = list_connections(db_cli)
     conn = choose_connection(conns, args.db_slug)
-    db_name = args.db_name or conn.get("database")
-    if not db_name:
-        die(
-            f"could not determine the database name for connection "
-            f"'{conn['slug']}'. Pass --database <name> explicitly."
-        )
-
-    print(
-        f"connection: {conn['slug']} "
-        f"(host={conn.get('host') or '?'}, db={db_name})"
-    )
+    db_name = args.db_name or conn.get("database") or DEFAULT_DB
+    print_connection(conn, db_name)
 
     identifier = args.identifier.strip()
     if identifier.isdigit():
@@ -267,17 +285,8 @@ def cmd_storage(args):
     db_cli = find_database_cli()
     conns = list_connections(db_cli)
     conn = choose_connection(conns, args.db_slug)
-    db_name = args.db_name or conn.get("database")
-    if not db_name:
-        die(
-            f"could not determine the database name for connection "
-            f"'{conn['slug']}'. Pass --database <name> explicitly."
-        )
-
-    print(
-        f"connection: {conn['slug']} "
-        f"(host={conn.get('host') or '?'}, db={db_name})"
-    )
+    db_name = args.db_name or conn.get("database") or DEFAULT_DB
+    print_connection(conn, db_name)
 
     # Fast existence/name check first — avoids a multi-minute SUM on a bad id.
     try:
