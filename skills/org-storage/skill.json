@@ -1,0 +1,21 @@
+{
+  "name": "org-storage",
+  "title": "Organization Storage",
+  "description": "Report how much storage an organization is using by summing shared_file.file_size, converted to a human-friendly unit. Delegates to the read-only database skill.",
+  "version": "1.0.0",
+  "setup_instructions": "Requires the `database` skill to be installed and configured with a read-only connection to the target database. This skill holds no credentials of its own — it issues only read-only SELECT queries through the `database` CLI.",
+  "dependencies": [
+    {
+      "name": "python3",
+      "check": "python3 --version",
+      "install": {
+        "darwin": "brew install python",
+        "linux": "sudo apt-get install -y python3 || sudo yum install -y python3",
+        "windows": "winget install Python.Python.3"
+      }
+    }
+  ],
+  "fields": [],
+  "test_command": "resolve 0",
+  "files": ["org-storage", "SKILL.md", "README.md"]
+}
