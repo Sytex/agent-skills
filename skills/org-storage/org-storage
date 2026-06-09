@@ -1,0 +1,355 @@
+#!/usr/bin/env python3
+"""org-storage — report the storage used by a Sytex organization.
+
+Storage is the sum of ``shared_file.file_size`` (bytes) for an organization. All
+database access is delegated to the read-only ``database`` skill CLI — this tool
+never connects to MySQL directly, never holds credentials, and only ever issues
+SELECT queries (the ``database`` CLI itself enforces read-only).
+
+Subcommands
+-----------
+resolve <name-or-id>
+    Resolve an organization by numeric id or by (partial, case-insensitive)
+    name. Prints the chosen connection and the matching ``id<TAB>name`` rows so
+    the caller can disambiguate. Fast (sub-second).
+
+storage <id>
+    Sum ``shared_file.file_size`` for the org and print a human-readable size
+    plus the raw byte count. SLOW for large orgs (can take minutes) — callers
+    should run this in the background.
+
+Why two steps: name resolution is instant and may need a human to pick between
+matches, so it runs in the foreground; the heavy SUM runs in the background and
+reports back when done.
+
+Optional flags (after the subcommand)
+    --db <slug>        Force a specific ``database`` connection (skip auto-detect).
+    --database <name>  Force a specific database name.
+    --timeout <secs>   Wall-clock backstop for the slow SUM (default 900).
+
+The connection is auto-detected from ``database dbs``: a read-only-looking
+connection (slug containing reader/replica/read-only/ro) is preferred, otherwise
+the active/first one. The chosen host is always reported so the read-only
+endpoint requirement is auditable.
+"""
+
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+ORG_TABLE = "organizations_organization"
+FILE_TABLE = "shared_file"
+
+ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+# A connection header line in `database dbs`, after ANSI stripping, looks like:
+#   "  ● production (active)"
+CONN_RE = re.compile(r"^\s*●\s+(\S+)(.*)$")
+# Prefer connections whose slug clearly denotes a read-only / reader endpoint.
+READONLY_SLUG_RE = re.compile(r"(reader|replica|read[-_]?only|readonly|\bro\b|[-_]ro$)", re.I)
+# Aurora reader endpoints carry `cluster-ro-` in the host; also catch generic markers.
+# This matters because a connection's slug may be neutral (e.g. "prod-us") while its
+# host is unmistakably the reader (…cluster-ro-….rds.amazonaws.com).
+READONLY_HOST_RE = re.compile(r"(cluster-ro-|[-.]ro[-.]|reader|replica|read[-_]?only)", re.I)
+
+# The org registry (organizations_organization) and shared_file both live in this DB.
+# The `database` connection on the EC2 has no default DB configured, so fall back to
+# this; override with --database for other deployments.
+DEFAULT_DB = "sytex_app"
+
+# mysql/mariadb prints diagnostics ("mysql: [Warning] Using a password …") that the
+# `database` CLI merges into stdout via 2>&1. Drop these so they aren't parsed as rows.
+DIAG_LINE_RE = re.compile(r"^(mysql|mariadb): ", re.I)
+
+DBS_TIMEOUT = 30  # seconds — listing connections runs a quick SELECT 1 per conn
+
+
+def die(msg, code=1):
+    """Print a human-readable error and exit non-zero (hard failure)."""
+    print(f"error: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def find_database_cli():
+    """Locate the `database` skill executable across known install locations."""
+    override = os.environ.get("DATABASE_CLI")
+    if override:
+        if os.path.isfile(override) and os.access(override, os.X_OK):
+            return override
+        die(f"DATABASE_CLI points at '{override}', which is not an executable file.")
+    home = os.path.expanduser("~")
+    candidates = [
+        os.path.join(home, ".claude/skills/database/database"),
+        os.path.join(home, ".codex/skills/database/database"),
+        os.path.join(home, ".gemini/skills/database/database"),
+    ]
+    for path in candidates:
+        if os.path.isfile(path) and os.access(path, os.X_OK):
+            return path
+    on_path = shutil.which("database")
+    if on_path:
+        return on_path
+    die(
+        "the `database` skill CLI was not found. This skill delegates all queries "
+        "to it. Install/configure the `database` skill first "
+        "(expected at ~/.claude/skills/database/database)."
+    )
+
+
+def list_connections(db_cli):
+    """Parse `database dbs` into a list of connection dicts.
+
+    Returns dicts with keys: slug, host, database, active. The `dbs` output is
+    ANSI-colored and human-formatted, so we strip color codes and read it line
+    by line.
+    """
+    try:
+        proc = subprocess.run(
+            [db_cli, "dbs"], capture_output=True, text=True, timeout=DBS_TIMEOUT
+        )
+    except subprocess.TimeoutExpired:
+        die("`database dbs` timed out while listing connections")
+    except OSError as e:
+        die(f"could not run the `database` CLI at '{db_cli}': {e}")
+    text = ANSI_RE.sub("", proc.stdout + "\n" + proc.stderr)
+
+    conns = []
+    current = None
+    for line in text.splitlines():
+        m = CONN_RE.match(line)
+        if m:
+            if current:
+                conns.append(current)
+            current = {
+                "slug": m.group(1),
+                "active": "(active)" in m.group(2),
+                "host": "",
+                "database": "",
+            }
+            continue
+        if current is None:
+            continue
+        stripped = line.strip()
+        if stripped.startswith("Host:"):
+            current["host"] = stripped[len("Host:"):].strip()
+        elif stripped.startswith("Database:"):
+            current["database"] = stripped[len("Database:"):].strip()
+    if current:
+        conns.append(current)
+    return conns
+
+
+def is_readonly(conn):
+    """True if the connection's slug or host marks it as a read-only/reader endpoint."""
+    return bool(
+        READONLY_SLUG_RE.search(conn.get("slug", ""))
+        or READONLY_HOST_RE.search(conn.get("host", ""))
+    )
+
+
+def choose_connection(conns, forced_slug=None):
+    """Pick which connection to use, preferring a read-only-looking one."""
+    if forced_slug:
+        for c in conns:
+            if c["slug"] == forced_slug:
+                return c
+        # Forced slug not in the parsed list — trust the user and use it bare.
+        return {"slug": forced_slug, "active": False, "host": "", "database": ""}
+    if not conns:
+        die(
+            "no database connections are configured in the `database` skill. "
+            "Run `database dbs` to check, or configure a connection."
+        )
+    readonly = [c for c in conns if is_readonly(c)]
+    pool = readonly or conns
+    for c in pool:
+        if c["active"]:
+            return c
+    return pool[0]
+
+
+def print_connection(conn, db_name):
+    """Report the connection used, flagging the read-only endpoint for auditability."""
+    ro = " [read-only ✓]" if is_readonly(conn) else ""
+    print(f"connection: {conn['slug']} (host={conn.get('host') or '?'}, db={db_name}){ro}")
+
+
+def run_query(db_cli, conn, db_name, sql, timeout):
+    """Run a SELECT via the `database` CLI in csv (tab-separated) format.
+
+    Returns the list of rows (each a list of column strings). Raises on error.
+    """
+    cmd = [db_cli, "--db", conn["slug"]]
+    if db_name:
+        cmd += ["--database", db_name]
+    cmd += ["query", sql, "csv"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except OSError as e:
+        raise RuntimeError(f"could not run the `database` CLI at '{db_cli}': {e}")
+    except subprocess.TimeoutExpired:
+        raise TimeoutError(
+            f"query exceeded the {timeout}s limit — this organization is very "
+            f"large. Try again, or ask the DB team about a covering index on "
+            f"{FILE_TABLE}(organization_id, file_size)."
+        )
+    out = proc.stdout
+    # The `database` CLI merges mysql stderr into stdout (2>&1) and exits non-zero
+    # on failure. Surface anything that doesn't look like a normal result.
+    if proc.returncode != 0 or "ERROR" in out:
+        detail = (out + proc.stderr).strip() or f"exit code {proc.returncode}"
+        raise RuntimeError(detail)
+    rows = []
+    for line in out.splitlines():
+        if line == "" or DIAG_LINE_RE.match(line):
+            continue
+        rows.append(line.split("\t"))
+    return rows
+
+
+def escape_sql_str(value):
+    """Escape a value for safe interpolation inside a single-quoted SQL string.
+
+    Queries go to the `database` CLI as a single argv element (no shell), so the
+    only concern is the SQL string literal itself: escape backslashes first, then
+    single quotes (MySQL doubles quotes). `%`/`_` are left intact so they keep
+    working as LIKE wildcards in a name search.
+    """
+    return value.replace("\\", "\\\\").replace("'", "''")
+
+
+def human_bytes(n):
+    """Largest base-1024 unit where the value is >= 1, with 2 decimals."""
+    units = ["B", "KB", "MB", "GB", "TB", "PB", "EB"]
+    if n == 0:
+        return "0 B"
+    size = float(n)
+    i = 0
+    while size >= 1024 and i < len(units) - 1:
+        size /= 1024.0
+        i += 1
+    if i == 0:
+        return f"{int(n)} B"
+    return f"{size:.2f} {units[i]}"
+
+
+def lookup_org_by_id(db_cli, conn, db_name, org_id):
+    """Return (id, name) for an org id, or None if it doesn't exist. Fast."""
+    sql = f"SELECT id, name FROM {ORG_TABLE} WHERE id = {org_id}"
+    rows = run_query(db_cli, conn, db_name, sql, timeout=DBS_TIMEOUT)
+    if not rows:
+        return None
+    return rows[0][0], rows[0][1] if len(rows[0]) > 1 else ""
+
+
+def cmd_resolve(args):
+    db_cli = find_database_cli()
+    conns = list_connections(db_cli)
+    conn = choose_connection(conns, args.db_slug)
+    db_name = args.db_name or conn.get("database") or DEFAULT_DB
+    print_connection(conn, db_name)
+
+    identifier = args.identifier.strip()
+    if identifier.isdigit():
+        sql = f"SELECT id, name FROM {ORG_TABLE} WHERE id = {int(identifier)}"
+    else:
+        pattern = "%" + escape_sql_str(identifier) + "%"
+        sql = (
+            f"SELECT id, name FROM {ORG_TABLE} "
+            f"WHERE name LIKE '{pattern}' ORDER BY name LIMIT 20"
+        )
+
+    try:
+        rows = run_query(db_cli, conn, db_name, sql, timeout=DBS_TIMEOUT)
+    except (RuntimeError, TimeoutError) as e:
+        die(f"name resolution failed: {e}")
+
+    print(f"matches: {len(rows)}")
+    for row in rows:
+        oid = row[0]
+        name = row[1] if len(row) > 1 else ""
+        print(f"{oid}\t{name}")
+    # Exit 0 even on 0 matches — "no such org" is a valid answer, not a failure.
+
+
+def cmd_storage(args):
+    if not str(args.org_id).isdigit():
+        die(
+            f"storage expects a numeric organization id, got '{args.org_id}'. "
+            f"Use `resolve` first to turn a name into an id."
+        )
+    org_id = int(args.org_id)
+
+    db_cli = find_database_cli()
+    conns = list_connections(db_cli)
+    conn = choose_connection(conns, args.db_slug)
+    db_name = args.db_name or conn.get("database") or DEFAULT_DB
+    print_connection(conn, db_name)
+
+    # Fast existence/name check first — avoids a multi-minute SUM on a bad id.
+    try:
+        org = lookup_org_by_id(db_cli, conn, db_name, org_id)
+    except (RuntimeError, TimeoutError) as e:
+        die(f"organization lookup failed: {e}")
+    if org is None:
+        print(f"org: {org_id}\t(not found)")
+        print(f"No organization with id {org_id} exists on this connection.")
+        return
+    name = org[1]
+    print(f"org: {org_id}\t{name}")
+
+    # The slow part: sum file sizes. NULL means the org has no files.
+    sql = f"SELECT SUM(file_size) FROM {FILE_TABLE} WHERE organization_id = {org_id}"
+    try:
+        rows = run_query(db_cli, conn, db_name, sql, timeout=args.timeout)
+    except TimeoutError as e:
+        print(f"timed out: {e}")
+        sys.exit(2)
+    except RuntimeError as e:
+        die(f"storage query failed: {e}")
+
+    raw = rows[0][0] if rows and rows[0] else "NULL"
+    total = 0 if raw in ("NULL", "") else int(raw)
+    print(f"bytes: {total}")
+    print(f"size: {human_bytes(total)}")
+    if total == 0:
+        print(f"{name} (org {org_id}) has no stored files (0 B).")
+    else:
+        print(f"{name} (org {org_id}) is using {human_bytes(total)} ({total:,} bytes).")
+
+
+def build_parser():
+    parent = argparse.ArgumentParser(add_help=False)
+    parent.add_argument("--db", dest="db_slug", default=os.environ.get("ORG_STORAGE_DB"),
+                        help="force a specific `database` connection slug")
+    parent.add_argument("--database", dest="db_name",
+                        default=os.environ.get("ORG_STORAGE_DATABASE"),
+                        help="force a specific database name")
+    parent.add_argument("--timeout", type=int, default=900,
+                        help="wall-clock backstop for the slow SUM (default 900s)")
+
+    ap = argparse.ArgumentParser(prog="org-storage", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    r = sub.add_parser("resolve", parents=[parent],
+                       help="resolve an org by id or partial name")
+    r.add_argument("identifier", help="organization id or (partial) name")
+    r.set_defaults(func=cmd_resolve)
+
+    s = sub.add_parser("storage", parents=[parent],
+                       help="sum storage for an org id (slow; run in background)")
+    s.add_argument("org_id", help="numeric organization id")
+    s.set_defaults(func=cmd_storage)
+    return ap
+
+
+def main():
+    args = build_parser().parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
