@@ -11,6 +11,7 @@ Skills for AI coding agents by the Sytex team.
 | [issue-resolution](./skills/issue-resolution) | End-to-end workflow for resolving user-reported problems  |
 | [linear](./skills/linear)                   | Manage issues and projects                                  |
 | [pipedrive](./skills/pipedrive)             | Manage deals, contacts, and sales pipeline                  |
+| [prode-results](./skills/prode-results)     | Sync WC2026 match results into the prode (dry-run + confirm) |
 | [sentry](./skills/sentry)                   | Monitor errors and issues                                   |
 | [slite](./skills/slite)                     | Connect with Slite knowledge base                           |
 | [sytex](./skills/sytex)                     | Interact with Sytex production API                          |
