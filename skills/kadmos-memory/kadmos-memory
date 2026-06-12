@@ -25,20 +25,18 @@ load_config() {
 }
 
 # HTTP GET. Captures body + status, turns transport/auth errors into friendly messages.
+# No temp files: sandboxed agent environments often forbid mktemp.
 api_get() {
     local path="$1"
-    local body status
-    local tmp
-    tmp="$(mktemp)"
-
-    status=$(curl -s -o "$tmp" -w "%{http_code}" \
+    local response
+    response=$(curl -s -w $'\n%{http_code}' \
         --connect-timeout 10 \
         -H "Authorization: Bearer $TOKEN" \
         -H "Accept: application/json" \
-        "${BASE_URL}${path}" 2>/dev/null) || status="000"
+        "${BASE_URL}${path}" 2>/dev/null) || response=$'\n000'
 
-    body="$(cat "$tmp")"
-    rm -f "$tmp"
+    local status="${response##*$'\n'}"
+    local body="${response%$'\n'*}"
 
     case "$status" in
         200)
@@ -85,7 +83,7 @@ add_param() {
 
 cmd_search() {
     local q="" author="" channel_id="" conversation_id="" source=""
-    local after="" before="" include_bot="" limit=""
+    local after="" before="" include_bot="false" limit=""
     local positional=()
 
     while [[ $# -gt 0 ]]; do
@@ -195,6 +193,12 @@ cmd_window() {
     api_get "/api/recall/conversations?${QUERY}"
 }
 
+# === WHOAMI (resolve the token to your own Discord identity) ===
+
+cmd_whoami() {
+    api_get "/api/recall/whoami"
+}
+
 # === TEST (connectivity + auth) ===
 
 cmd_test() {
@@ -202,14 +206,12 @@ cmd_test() {
     echo "Token: ****configured****"
     echo ""
 
-    local tmp status
-    tmp="$(mktemp)"
-    status=$(curl -s -o "$tmp" -w "%{http_code}" \
+    local status
+    status=$(curl -s -o /dev/null -w "%{http_code}" \
         --connect-timeout 10 \
         -H "Authorization: Bearer $TOKEN" \
         -H "Accept: application/json" \
         "${BASE_URL}/api/recall/conversations?limit=1" 2>/dev/null) || status="000"
-    rm -f "$tmp"
 
     case "$status" in
         200)
@@ -257,7 +259,7 @@ COMMANDS:
     --source <s>                  Filter by source
     --after <ISO>                 Only messages after this ISO8601 UTC time
     --before <ISO>                Only messages before this ISO8601 UTC time
-    --include-bot                 Include messages authored by bots
+    --include-bot                 Include bot-authored messages (excluded by default)
     --limit <n>                   Max results (default 100, max 500)
 
   conversations [flags]           Conversation summaries, newest activity first
@@ -273,7 +275,13 @@ COMMANDS:
                                   Conversations active in a time range
     --limit <n>
 
+  whoami                          Resolve your token to your Discord user id/name
+
   test                            Check connectivity + auth
+
+OUTPUT:
+  All output is compact single-line JSON. Extract fields with python3/jq instead
+  of reading it raw, and keep --limit modest — full dumps get very large.
 
 FTS TIPS:
   q supports OR / AND / NOT and "double-quoted phrases".
@@ -302,6 +310,7 @@ case "$1" in
     conversations) shift; load_config; cmd_conversations "$@" ;;
     transcript) shift; load_config; cmd_transcript "$@" ;;
     window) shift; load_config; cmd_window "$@" ;;
+    whoami) load_config; cmd_whoami ;;
     test) load_config; cmd_test ;;
     ""|help|-h|--help) show_help ;;
     *) show_help; exit 1 ;;

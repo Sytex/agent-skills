@@ -93,11 +93,27 @@ Returns the full ordered transcript: `{"thread"/"conversation": {...}, "messages
 
 Convenience over `conversations` for "what happened between these dates".
 
+### whoami — your own identity
+
+```bash
+./kadmos-memory whoami
+```
+
+Resolves your token to `{user_id, user_name}`. Use it when a playbook needs the
+user's own Discord id or name (e.g. to spot mentions of them in transcripts) —
+`--author me` already covers plain authorship filters without it.
+
 ### test — connectivity + auth
 
 ```bash
 ./kadmos-memory test
 ```
+
+## Output handling
+
+Every command prints compact single-line JSON. Do not read large responses raw:
+extract the fields you need with `python3` or `jq`, and keep `--limit` modest
+(20-50) unless you genuinely need more.
 
 ## Query playbooks
 
@@ -149,8 +165,15 @@ by channel, each with a one-line summary and a link. Surface anything that
 
 `--after` / `--before` are **ISO8601 UTC** (e.g. `2026-06-01T00:00:00Z`). The team
 is mostly **UTC-3**, so convert the user's local times before querying (e.g.
-"since Monday 9am" → add 3 hours for UTC). When the user is vague ("last week",
-"esta semana"), pick a sensible UTC window and state it in the answer.
+"since Monday 9am" → add 3 hours for UTC). Conventions for vague phrases —
+always state the window you chose in the answer:
+
+| Phrase | Window (UTC) |
+|--------|--------------|
+| hoy / today | today 03:00Z → now (their midnight is 03:00Z) |
+| esta semana / this week | Monday 03:00Z → now |
+| la semana pasada / last week | previous Monday 03:00Z → Monday 03:00Z |
+| este mes / this month | 1st 03:00Z → now |
 
 ## FTS tips
 
