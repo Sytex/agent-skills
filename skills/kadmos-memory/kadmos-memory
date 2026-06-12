@@ -10,20 +10,16 @@ CONFIG_FILE="$HOME/.agent-skills/$SKILL_NAME/.env"
 
 # Load config and validate the token. Skipped for help, which needs no credentials.
 load_config() {
-    if [[ ! -f "$CONFIG_FILE" ]]; then
-        echo "Error: Not configured. Run the installer to set your Kadmos token."
-        echo "Get a personal token by typing /token to the Kadmos bot in Discord (it DMs it to you)."
-        exit 1
+    if [[ -f "$CONFIG_FILE" ]]; then
+        source "$CONFIG_FILE" 2>/dev/null
     fi
-
-    source "$CONFIG_FILE" 2>/dev/null
 
     BASE_URL="${KADMOS_MEMORY_BASE_URL:-http://10.31.149.63:7832}"
     TOKEN="${KADMOS_MEMORY_TOKEN:-}"
 
     if [[ -z "$TOKEN" ]]; then
-        echo "Error: No token configured."
-        echo "Type /token to the Kadmos bot in Discord to get one, then run the installer to save it."
+        echo "Error: No token configured. Set KADMOS_MEMORY_TOKEN or run the installer."
+        echo "Get a personal token by typing /token to the Kadmos bot in Discord (it DMs it to you)."
         exit 1
     fi
 }
