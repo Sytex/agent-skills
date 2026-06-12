@@ -546,7 +546,13 @@ update_skills() {
 
     echo "Pulling latest changes..."
     if git -C "$repo_dir" pull; then
-        style green "Skills updated successfully"
+        local updated
+        updated=$(update_installed_skills)
+        if [[ "$updated" -gt 0 ]]; then
+            style green "Updated $updated installed skill installation(s)"
+        else
+            style green "Skills updated successfully"
+        fi
     else
         style red "Failed to update skills"
     fi
@@ -1015,6 +1021,34 @@ install_files() {
         echo -e "  Installing to ${CYAN}$name${NC}..."
         install_files_to_provider "$skill" "$provider"
     done < <(get_enabled_providers)
+}
+
+# Update installed skills whose repo files changed
+update_installed_skills() {
+    local updated=0
+
+    for dir in "$SKILLS_DIR"/*/; do
+        [[ -f "$dir/skill.json" ]] || continue
+
+        local skill
+        skill=$(basename "$dir")
+
+        while IFS= read -r provider; do
+            [[ -z "$provider" ]] && continue
+
+            local install_path status
+            install_path=$(get_install_path "$skill" "$provider")
+            [[ -d "$install_path" ]] || continue
+
+            status=$(get_skill_status_for_provider "$skill" "$provider")
+            if [[ "$status" == "outdated" ]]; then
+                install_files_to_provider "$skill" "$provider" >/dev/null
+                updated=$((updated + 1))
+            fi
+        done < <(get_enabled_providers)
+    done
+
+    echo "$updated"
 }
 
 # Configure skill credentials

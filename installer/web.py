@@ -218,8 +218,12 @@ def check_for_updates():
 
 
 def update_repo():
-    """Pull latest changes from git repository."""
+    """Pull latest changes from git repository and update installed skills."""
     if BUNDLED_MODE:
+        updated = update_installed_skills()
+        if updated:
+            install_word = "installation" if updated == 1 else "installations"
+            return {"success": True, "message": f"Updated {updated} installed skill {install_word}"}
         return {"success": True, "message": "Updates managed by the app"}
 
     repo_dir = SCRIPT_DIR.parent
@@ -233,7 +237,11 @@ def update_repo():
         error = result.stderr.strip() or result.stdout.strip() or "Git pull failed"
         return {"success": False, "error": error}
 
+    updated = update_installed_skills()
     output = result.stdout.strip()
+    if updated:
+        install_word = "installation" if updated == 1 else "installations"
+        return {"success": True, "message": f"Updated {updated} installed skill {install_word}"}
     if "Already up to date" in output:
         return {"success": True, "message": "Already up to date"}
     return {"success": True, "message": "Skills updated"}
@@ -449,6 +457,21 @@ def get_skill_status(skill_id, skill_data):
     return "installed"
 
 
+def installed_skill_is_outdated(skill_id, skill_data, provider_id):
+    """Return true when an installed skill differs from the repo copy."""
+    install_path = get_install_path(skill_id, provider_id)
+    if not install_path or not os.path.isdir(install_path):
+        return False
+
+    checksum_file = os.path.join(install_path, ".checksum")
+    if not os.path.isfile(checksum_file):
+        return True
+
+    with open(checksum_file) as f:
+        installed_checksum = f.read().strip()
+    return installed_checksum != compute_skill_checksum(skill_id, skill_data)
+
+
 def install_files_to_provider(skill_id, skill_data, provider_id):
     """Install skill files to a specific provider."""
     skill_dir = SKILLS_DIR / skill_id
@@ -494,6 +517,26 @@ def install_files(skill_id, skill_data):
         success = install_files_to_provider(skill_id, skill_data, provider_id)
         results.append({"provider": provider_id, "success": success})
     return results
+
+
+def update_installed_skills():
+    """Update installed skills whose repo files changed."""
+    updated = 0
+    for skill_dir in sorted(SKILLS_DIR.iterdir()):
+        skill_json = skill_dir / "skill.json"
+        if not skill_json.exists():
+            continue
+
+        with open(skill_json) as f:
+            skill_data = json.load(f)
+
+        skill_id = skill_dir.name
+        for provider_id in get_enabled_providers():
+            if installed_skill_is_outdated(skill_id, skill_data, provider_id):
+                if install_files_to_provider(skill_id, skill_data, provider_id):
+                    updated += 1
+
+    return updated
 
 
 def get_central_config_path(skill_id):
