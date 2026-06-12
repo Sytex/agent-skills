@@ -1,0 +1,27 @@
+{
+  "name": "kadmos-memory",
+  "title": "Kadmos Memory",
+  "description": "Query Kadmos memory — the full history of Discord messages the Kadmos bot captures. Recall what was discussed, who said what, and what is pending.",
+  "version": "1.0.0",
+  "setup_instructions": "Get a personal token by typing /token to the Kadmos bot in Discord (it DMs it to you). /token revoke kills it; one active token per person. The API is only reachable over the Sytex VPN.",
+  "fields": [
+    {
+      "name": "token",
+      "label": "Kadmos Token",
+      "type": "password",
+      "required": true,
+      "env_var": "KADMOS_MEMORY_TOKEN",
+      "help": "Type /token to the Kadmos bot in Discord — it DMs you a personal bearer token. /token revoke kills it. One active token per person."
+    },
+    {
+      "name": "base_url",
+      "label": "Kadmos Base URL",
+      "type": "text",
+      "default": "http://10.31.149.63:7832",
+      "env_var": "KADMOS_MEMORY_BASE_URL",
+      "help": "Kadmos memory API base URL. Default is the production address, reachable on the Sytex VPN only."
+    }
+  ],
+  "test_command": "test",
+  "files": ["kadmos-memory", "SKILL.md", "README.md"]
+}

@@ -1,0 +1,317 @@
+#!/bin/bash
+# Kadmos Memory CLI - query the Kadmos bot's captured Discord message history.
+# Read-only HTTP API, reachable on the Sytex VPN only.
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_NAME="$(basename "$SCRIPT_DIR")"
+CONFIG_FILE="$HOME/.agent-skills/$SKILL_NAME/.env"
+
+# Load config and validate the token. Skipped for help, which needs no credentials.
+load_config() {
+    if [[ -f "$CONFIG_FILE" ]]; then
+        source "$CONFIG_FILE" 2>/dev/null
+    fi
+
+    BASE_URL="${KADMOS_MEMORY_BASE_URL:-http://10.31.149.63:7832}"
+    TOKEN="${KADMOS_MEMORY_TOKEN:-}"
+
+    if [[ -z "$TOKEN" ]]; then
+        echo "Error: No token configured. Set KADMOS_MEMORY_TOKEN or run the installer."
+        echo "Get a personal token by typing /token to the Kadmos bot in Discord (it DMs it to you)."
+        exit 1
+    fi
+}
+
+# HTTP GET. Captures body + status, turns transport/auth errors into friendly messages.
+# No temp files: sandboxed agent environments often forbid mktemp.
+api_get() {
+    local path="$1"
+    local response
+    response=$(curl -s -w $'\n%{http_code}' \
+        --connect-timeout 10 \
+        -H "Authorization: Bearer $TOKEN" \
+        -H "Accept: application/json" \
+        "${BASE_URL}${path}" 2>/dev/null) || response=$'\n000'
+
+    local status="${response##*$'\n'}"
+    local body="${response%$'\n'*}"
+
+    case "$status" in
+        200)
+            echo "$body"
+            ;;
+        000)
+            echo "Error: Could not reach Kadmos at ${BASE_URL}." >&2
+            echo "Are you on the Sytex VPN? The Kadmos memory API is only reachable over the VPN." >&2
+            exit 1
+            ;;
+        401)
+            echo "Error: Token rejected (401). Your token is missing, invalid or was revoked." >&2
+            echo "Get a fresh one with /token in Discord, then run the installer to save it." >&2
+            exit 1
+            ;;
+        403)
+            echo "Error: Forbidden (403). Your token lacks the scope for this request." >&2
+            exit 1
+            ;;
+        *)
+            echo "Error: Kadmos returned HTTP $status." >&2
+            [[ -n "$body" ]] && echo "$body" >&2
+            exit 1
+            ;;
+    esac
+}
+
+# URL-encode a single value.
+url_encode() {
+    python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$1"
+}
+
+# Append a query param "key=value" to the global QUERY string, encoding the value.
+add_param() {
+    local key="$1" val="$2"
+    [[ -z "$val" ]] && return 0
+    local enc
+    enc="$(url_encode "$val")"
+    [[ -n "$QUERY" ]] && QUERY="${QUERY}&"
+    QUERY="${QUERY}${key}=${enc}"
+}
+
+# === SEARCH ===
+
+cmd_search() {
+    local q="" author="" channel_id="" conversation_id="" source=""
+    local after="" before="" include_bot="false" limit=""
+    local positional=()
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --author) author="$2"; shift 2 ;;
+            --channel) channel_id="$2"; shift 2 ;;
+            --conversation) conversation_id="$2"; shift 2 ;;
+            --source) source="$2"; shift 2 ;;
+            --after) after="$2"; shift 2 ;;
+            --before) before="$2"; shift 2 ;;
+            --include-bot) include_bot="true"; shift ;;
+            --limit) limit="$2"; shift 2 ;;
+            *) positional+=("$1"); shift ;;
+        esac
+    done
+
+    [[ -z "$q" ]] && q="${positional[*]}"
+
+    QUERY=""
+    add_param "q" "$q"
+    add_param "author" "$author"
+    add_param "channel_id" "$channel_id"
+    add_param "conversation_id" "$conversation_id"
+    add_param "source" "$source"
+    add_param "after" "$after"
+    add_param "before" "$before"
+    add_param "include_bot" "$include_bot"
+    add_param "limit" "$limit"
+
+    api_get "/api/recall/messages?${QUERY}"
+}
+
+# === CONVERSATIONS ===
+
+cmd_conversations() {
+    local after="" before="" author="" q="" limit=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --after) after="$2"; shift 2 ;;
+            --before) before="$2"; shift 2 ;;
+            --author) author="$2"; shift 2 ;;
+            --q) q="$2"; shift 2 ;;
+            --limit) limit="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    QUERY=""
+    add_param "after" "$after"
+    add_param "before" "$before"
+    add_param "author" "$author"
+    add_param "q" "$q"
+    add_param "limit" "$limit"
+
+    api_get "/api/recall/conversations?${QUERY}"
+}
+
+# === TRANSCRIPT ===
+
+cmd_transcript() {
+    local conversation_id="" source=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --source) source="$2"; shift 2 ;;
+            *) [[ -z "$conversation_id" ]] && conversation_id="$1"; shift ;;
+        esac
+    done
+
+    [[ -z "$conversation_id" ]] && echo "Error: conversation_id required" >&2 && exit 1
+
+    QUERY=""
+    add_param "source" "$source"
+
+    local enc_id
+    enc_id="$(url_encode "$conversation_id")"
+    local path="/api/recall/conversations/${enc_id}"
+    [[ -n "$QUERY" ]] && path="${path}?${QUERY}"
+
+    api_get "$path"
+}
+
+# === WINDOW (time-range activity, convenience over conversations) ===
+
+cmd_window() {
+    local after="" before="" author="" limit=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --after) after="$2"; shift 2 ;;
+            --before) before="$2"; shift 2 ;;
+            --author) author="$2"; shift 2 ;;
+            --limit) limit="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    [[ -z "$after" && -z "$before" ]] && echo "Error: window needs --after and/or --before (ISO8601 UTC)" >&2 && exit 1
+
+    QUERY=""
+    add_param "after" "$after"
+    add_param "before" "$before"
+    add_param "author" "$author"
+    add_param "limit" "$limit"
+
+    api_get "/api/recall/conversations?${QUERY}"
+}
+
+# === WHOAMI (resolve the token to your own Discord identity) ===
+
+cmd_whoami() {
+    api_get "/api/recall/whoami"
+}
+
+# === TEST (connectivity + auth) ===
+
+cmd_test() {
+    echo "Kadmos memory: ${BASE_URL}"
+    echo "Token: ****configured****"
+    echo ""
+
+    local status
+    status=$(curl -s -o /dev/null -w "%{http_code}" \
+        --connect-timeout 10 \
+        -H "Authorization: Bearer $TOKEN" \
+        -H "Accept: application/json" \
+        "${BASE_URL}/api/recall/conversations?limit=1" 2>/dev/null) || status="000"
+
+    case "$status" in
+        200)
+            echo "Status: connected — token is valid."
+            return 0
+            ;;
+        000)
+            echo "Status: cannot reach Kadmos. Are you on the Sytex VPN?"
+            return 1
+            ;;
+        401)
+            echo "Status: token rejected (401). Get a new one with /token in Discord."
+            return 1
+            ;;
+        403)
+            echo "Status: forbidden (403). Token lacks the required scope."
+            return 1
+            ;;
+        *)
+            echo "Status: error (HTTP $status)."
+            return 1
+            ;;
+    esac
+}
+
+# === MAIN ===
+
+show_help() {
+    cat <<'EOF'
+Kadmos Memory CLI — query the Kadmos bot's captured Discord message history.
+
+The Kadmos bot captures messages from the Discord channels and threads it can
+read. This skill recalls that history over the Sytex VPN. Privacy is enforced
+server-side from your token (private threads only if you took part).
+
+GETTING A TOKEN:
+  Type /token to the Kadmos bot in Discord — it DMs you a personal bearer token.
+  /token revoke kills it. One active token per person. Save it via the installer.
+
+COMMANDS:
+  search <query> [flags]          Full-text search messages (FTS5)
+    --author <X>                  Discord id, name substring, or the literal "me"
+    --channel <id>                Filter by channel id
+    --conversation <id>           Filter by conversation/thread id
+    --source <s>                  Filter by source
+    --after <ISO>                 Only messages after this ISO8601 UTC time
+    --before <ISO>                Only messages before this ISO8601 UTC time
+    --include-bot                 Include bot-authored messages (excluded by default)
+    --limit <n>                   Max results (default 100, max 500)
+
+  conversations [flags]           Conversation summaries, newest activity first
+    --author <X>                  Discord id, name substring, or "me"
+    --q <query>                   FTS over messages, return matching conversations
+    --after <ISO> / --before <ISO>
+    --limit <n>                   Max results (default 50)
+
+  transcript <conversation_id>    Full ordered transcript of one conversation
+    --source <s>
+
+  window --after <ISO> [--before <ISO>] [--author <X>]
+                                  Conversations active in a time range
+    --limit <n>
+
+  whoami                          Resolve your token to your Discord user id/name
+
+  test                            Check connectivity + auth
+
+OUTPUT:
+  All output is compact single-line JSON. Extract fields with python3/jq instead
+  of reading it raw, and keep --limit modest — full dumps get very large.
+
+FTS TIPS:
+  q supports OR / AND / NOT and "double-quoted phrases".
+    search 'permisos OR permissions'
+    search '"task template" AND error'
+  Hostile input is sanitized server-side — queries never error.
+
+TIME:
+  after/before are ISO8601 UTC, e.g. 2026-06-01T00:00:00Z. The team is mostly
+  UTC-3, so convert local times before querying.
+
+DISCORD LINKS:
+  https://discord.com/channels/{space_id}/{conversation_id}
+
+EXAMPLES:
+  ./kadmos-memory test
+  ./kadmos-memory conversations --author me --after 2026-06-01T00:00:00Z
+  ./kadmos-memory search 'webhook OR webhooks' --after 2026-06-01T00:00:00Z
+  ./kadmos-memory search 'Claro' --author me
+  ./kadmos-memory transcript 1234567890123456789
+EOF
+}
+
+case "$1" in
+    search) shift; load_config; cmd_search "$@" ;;
+    conversations) shift; load_config; cmd_conversations "$@" ;;
+    transcript) shift; load_config; cmd_transcript "$@" ;;
+    window) shift; load_config; cmd_window "$@" ;;
+    whoami) load_config; cmd_whoami ;;
+    test) load_config; cmd_test ;;
+    ""|help|-h|--help) show_help ;;
+    *) show_help; exit 1 ;;
+esac
