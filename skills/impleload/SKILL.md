@@ -1,6 +1,6 @@
 ---
 name: impleload
-description: Use this skill when an agent must operate Impleload from the CLI, automate implementation workload tasks, create/update/list/delete activities, create/update/list/delete worklogs, authenticate with Google CLI auth, or act through IMPLELOAD_AGENT_TOKEN with an actor email or Discord user. Use for business operations around implementer capacity, client implementation activities, scope consumption, weekly work logs, and audited agent-driven changes.
+description: Use this skill when an agent must operate Impleload from the CLI, automate implementation workload tasks, create/update/list/delete activities, create/update/list/delete dated worklogs, authenticate with Google CLI auth, or act through IMPLELOAD_AGENT_TOKEN with an actor email or Discord user. Use for business operations around implementer capacity, client implementation activities, scope consumption, work performed on declared dates, and audited agent-driven changes.
 ---
 
 # Impleload CLI
@@ -14,7 +14,7 @@ Use the Impleload CLI to operate implementation workload data from a terminal, s
 Use the CLI when the task asks to:
 
 - List, inspect, create, update, or delete implementation activities.
-- Record, inspect, update, or delete weekly worklogs for an activity.
+- Record, inspect, update, or delete dated worklogs for an activity.
 - Automate Impleload operations from an agent, bot, scheduled job, or script.
 - Perform an audited action on behalf of a user identified by email or Discord user id.
 - Check the authenticated CLI user with `auth whoami`.
@@ -86,7 +86,18 @@ Use `--output json` for automation and when you need stable ids or structured fi
 
 ## Activities
 
-Activities represent implementation work for a client and carry load, scope, dates, optional implementer assignment, and active state.
+Activities represent planned implementation work for a client and carry weekly load, total scope, dates, optional implementer assignment, and active state.
+
+Conceptual rules:
+
+- `load_hours` is the weekly plan: how many hours the implementer is expected to spend per week on that activity.
+- `scope_hours` is the total agreement with the client for that activity.
+- Worklogs record worked hours and consume the total scope. They do not consume the weekly plan.
+- Worklogs are created with `work_date`, the specific date when the implementer declares the work was performed.
+- `week_start` is derived from `work_date` for weekly board/report aggregation and historical compatibility; prefer `--work-date` in CLI commands.
+- Scope progress is derived from worklogs (`consumed_hours_total`, `scope_completed_hours`, `scope_percent`, and `scope_overrun_hours`), not manually edited.
+- In the Impleload board, block sizing and capacity indicators may represent weekly plan/actuals, but progress bars inside activities must represent only scope consumed: `consumed_hours_total / scope_hours`.
+- If an activity has no `scope_hours > 0`, do not show a scope progress bar for it.
 
 Core commands:
 
@@ -106,27 +117,29 @@ Useful create/update fields:
 --load-hours HOURS
 --revenue-usd AMOUNT
 --scope-hours HOURS
---scope-completed-hours HOURS
 --start-date YYYY-MM-DD
 --end-date YYYY-MM-DD
 --active true|false
 ```
 
 Business rules are enforced by the backend. Expect errors if `load_hours < 1`, capacity would be exceeded, ids do not exist, or dates/scope are invalid.
+Do not try to set `scope_completed_hours` directly; create, update, or delete worklogs instead.
 
 ## Worklogs
 
-Worklogs record weekly consumed hours and Markdown descriptions against an activity.
+Worklogs record consumed hours and Markdown descriptions against an activity on a declared work date.
 
 Core commands:
 
 ```bash
 impleload worklogs list --activity-id ACTIVITY_ID
 impleload worklogs get WORK_LOG_ID
-impleload worklogs create --activity-id ACTIVITY_ID --week-start YYYY-MM-DD --hours 2 --description-md "Trabajo realizado"
+impleload worklogs create --activity-id ACTIVITY_ID --work-date YYYY-MM-DD --hours 2 --description-md "Trabajo realizado"
 impleload worklogs update WORK_LOG_ID --hours 3 --description-md "Ajuste de avance"
 impleload worklogs delete WORK_LOG_ID
 ```
+
+Use `--work-date YYYY-MM-DD` for create/update when changing the declared date. Older CLI/API flows may mention `--week-start`; treat it as a legacy alias and do not use it in new examples.
 
 Use `--implementer-id ID` when the worklog should be attributed to a specific implementer. If omitted, backend behavior may use the activity assignment depending on the API rules.
 
@@ -168,12 +181,12 @@ IMPLELOAD_AGENT_TOKEN=... impleload \
   --scope-hours 10
 ```
 
-Record weekly work:
+Record work performed on a specific date:
 
 ```bash
 impleload --output json worklogs create \
   --activity-id 42 \
-  --week-start 2026-04-20 \
+  --work-date 2026-04-21 \
   --hours 2 \
   --description-md "Configuracion y validacion con cliente"
 ```
