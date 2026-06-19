@@ -31,6 +31,14 @@ intercom conversation-note <id> "Suggested response: ..."
 
 When asked to investigate an issue or help with a support conversation:
 
+**If you were given a conversation URL or id, skip the search and read it directly (step 2).**
+The conversation id is the number after `/conversation/` in the URL — IGNORE any
+`/admin/<n>/` segment (that is an inbox/admin id, NOT the conversation). Example:
+`.../inbox/admin/7800965/conversation/215474772848944?view=List` → id **215474772848944**
+(not 7800965). Only fall back to search (`conversations-search` / `--email` / `--name`)
+when NO conversation URL or id was provided — search can surface a *different*
+conversation than the one you were given.
+
 ### 1. Find conversations (flexible entry point)
 
 ```bash
@@ -51,6 +59,8 @@ intercom conversations-search "error de sincronización"
 ```
 
 ### 2. Read the full conversation
+
+Use the id from the URL (the number after `/conversation/`, never the `/admin/<n>/` id):
 
 ```bash
 intercom conversation <id>
