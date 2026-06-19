@@ -123,32 +123,45 @@ def cmd_bar(args):
 
 
 def cmd_line(args):
-    """Generate a line chart."""
+    """Generate a line chart. Supports multiple series via comma-separated --y."""
     stdin_data = read_stdin()
     data = load_data(args.file, stdin_data)
 
-    if data and args.x and args.y:
+    # Multi-series mode: --y "col1,col2,col3" with file/stdin
+    y_columns = parse_list(args.y) if args.y else []
+    multi_series = data and args.x and len(y_columns) > 1
+
+    if multi_series:
         x_vals = [row[args.x] for row in data]
-        # Try to convert to numbers if possible
         try:
             x_vals = [float(x) for x in x_vals]
         except ValueError:
             pass
-        y_vals = [float(row[args.y]) for row in data]
+        series = [(col, [float(row[col]) for row in data]) for col in y_columns]
+    elif data and args.x and args.y:
+        x_vals = [row[args.x] for row in data]
+        try:
+            x_vals = [float(x) for x in x_vals]
+        except ValueError:
+            pass
+        series = [(args.y, [float(row[args.y]) for row in data])]
     elif args.labels and args.values:
         x_vals = parse_list(args.labels)
-        y_vals = parse_numbers(args.values)
+        series = [(args.y or '', parse_numbers(args.values))]
     else:
         print("Error: Provide --labels and --values, or --file with --x and --y", file=sys.stderr)
         sys.exit(1)
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(x_vals, y_vals, marker='o', linewidth=2, markersize=6, color='#4A90D9')
+    for name, values in series:
+        ax.plot(x_vals, values, marker='o', linewidth=2, markersize=6, label=name)
 
     if args.x:
         ax.set_xlabel(args.x)
-    if args.y:
-        ax.set_ylabel(args.y)
+    if len(series) == 1 and series[0][0]:
+        ax.set_ylabel(series[0][0])
+    if len(series) > 1:
+        ax.legend()
     if args.title:
         ax.set_title(args.title)
 
@@ -239,16 +252,63 @@ def cmd_histogram(args):
     save_and_output(fig, output, args.open)
 
 
+def cmd_table(args):
+    """Render a styled table as PNG from CSV/JSON/stdin."""
+    stdin_data = read_stdin()
+    data = load_data(args.file, stdin_data)
+
+    if not data:
+        print("Error: Provide --file or pipe CSV/JSON via stdin", file=sys.stderr)
+        sys.exit(1)
+
+    headers = list(data[0].keys())
+    rows = [[str(row.get(h, '')) for h in headers] for row in data]
+
+    # Auto-size: width grows with column count, height with row count
+    fig_w = max(8.0, len(headers) * 1.6)
+    fig_h = max(2.5, (len(rows) + 1) * 0.4)
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    ax.axis('off')
+
+    table = ax.table(
+        cellText=rows,
+        colLabels=headers,
+        loc='center',
+        cellLoc='center',
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1.2, 1.5)
+
+    for j in range(len(headers)):
+        cell = table[0, j]
+        cell.set_facecolor('#4472C4')
+        cell.set_text_props(color='white', fontweight='bold')
+
+    for i in range(1, len(rows) + 1):
+        for j in range(len(headers)):
+            cell = table[i, j]
+            if i % 2 == 0:
+                cell.set_facecolor('#D9E2F3')
+
+    if args.title:
+        ax.set_title(args.title, fontsize=14, fontweight='bold', pad=20)
+
+    output = args.output or generate_output_path('table')
+    save_and_output(fig, output, args.open)
+
+
 def cmd_help(args=None):
     """Show help information."""
     help_text = """Charts - Generate charts and graphs from data
 
 COMMANDS:
   bar        Generate a bar chart
-  line       Generate a line chart
+  line       Generate a line chart (single or multi-series)
   pie        Generate a pie chart
   scatter    Generate a scatter plot
   histogram  Generate a histogram
+  table      Render a styled table as PNG
   help       Show this help message
 
 COMMON OPTIONS:
@@ -286,6 +346,15 @@ EXAMPLES:
 
   # Histogram
   charts histogram --file ages.csv --column age --bins 20 --title "Age Distribution"
+
+  # Multi-series line chart (one line per Y column)
+  charts line --file revenue.csv --x month --y "product_a,product_b,product_c"
+
+  # Table from CSV
+  charts table --file users.csv --title "User Report"
+
+  # Table from database query
+  database query "SELECT id, name, email FROM users LIMIT 20" | charts table --title "Users"
 """
     print(help_text)
 
@@ -323,6 +392,9 @@ def main():
     hist_parser.add_argument('--column', help='Column for histogram')
     hist_parser.add_argument('--bins', type=int, default=10, help='Number of bins')
 
+    # Table
+    subparsers.add_parser('table', parents=[common], help='Styled table as PNG')
+
     # Help
     subparsers.add_parser('help', help='Show help')
 
@@ -334,6 +406,7 @@ def main():
         'pie': cmd_pie,
         'scatter': cmd_scatter,
         'histogram': cmd_histogram,
+        'table': cmd_table,
         'help': cmd_help,
     }
 
