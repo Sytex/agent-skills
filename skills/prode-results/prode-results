@@ -1,0 +1,448 @@
+#!/usr/bin/env -S uv run --script --quiet
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#     "requests",
+#     "google-cloud-firestore",
+# ]
+# ///
+"""Sync WC2026 match results from football-data.org into the prode Firestore.
+
+Reads all 104 matches from the football-data.org API and compares them
+against the Firestore collection `worldCup2026/tournament/matches` (the
+same collection the mobile prode admin writes to). Proposes:
+
+  - score updates: ONLY for matches the API reports as FINISHED. The
+    stored score is the result at the end of play — ``score.fullTime``
+    in football-data v4, which includes extra time and EXCLUDES
+    penalties. Draws are valid stored results.
+  - team fills: knockout matches whose teams are still null in Firestore
+    but already resolved in the API bracket.
+
+`dry-run` (the default) only prints the proposal. `apply` writes it.
+The backend's per-minute fingerprint beat task detects score writes and
+recomputes points/rankings on its own — nothing else to trigger.
+
+Config (env vars, or KEY=VALUE lines in ~/.agent-skills/prode-results/.env):
+  FOOTBALL_DATA_API_TOKEN        football-data.org token (free tier)
+  GOOGLE_SERVICE_ACCOUNT_FILE    path to a Firebase service account JSON
+  GOOGLE_SERVICE_ACCOUNT_JSON    ...or the JSON content inline
+"""
+
+import argparse
+import json
+import os
+import sys
+import unicodedata
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+
+import requests
+from google.cloud import firestore
+from google.oauth2 import service_account
+
+CONFIG_FILE = Path.home() / ".agent-skills" / "prode-results" / ".env"
+MATCHES_API_URL = "https://api.football-data.org/v4/competitions/WC/matches"
+MATCHES_COLLECTION = "worldCup2026/tournament/matches"
+
+API_STATUS_FINISHED = "FINISHED"
+
+API_STAGE_TO_PRODE_STAGE = {
+    "GROUP_STAGE": "group_stage",
+    "LAST_32": "round_of_32",
+    "LAST_16": "round_of_16",
+    "QUARTER_FINALS": "quarterfinals",
+    "SEMI_FINALS": "semifinals",
+    "THIRD_PLACE": "third_place",
+    "FINAL": "final",
+}
+
+# API team names whose normalized form (lowercase, accents stripped,
+# spaces -> hyphens) does not equal the prode slug. "Curaçao" is NOT here
+# because the accent strip already yields "curacao".
+TEAM_NAME_OVERRIDES = {
+    "Cape Verde Islands": "cape-verde",
+    "Congo DR": "dr-congo",
+    "Czechia": "czech-republic",
+    "United States": "usa",
+}
+
+
+@dataclass
+class FirestoreMatch:
+    doc_id: str
+    match_number: str
+    stage: str | None
+    date_utc: datetime | None
+    local_team: str | None
+    visitor_team: str | None
+    local_team_score: int | None
+    visitor_team_score: int | None
+
+
+@dataclass(frozen=True)
+class ScoreUpdate:
+    doc_id: str
+    match_number: str
+    label: str
+    new_score: tuple[int, int]
+    old_score: tuple[int | None, int | None]
+
+
+@dataclass(frozen=True)
+class TeamFill:
+    doc_id: str
+    match_number: str
+    stage: str
+    local_team: str
+    visitor_team: str
+
+
+@dataclass
+class Report:
+    score_updates: list[ScoreUpdate] = field(default_factory=list)
+    team_fills: list[TeamFill] = field(default_factory=list)
+    in_sync: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    unmatched: list[str] = field(default_factory=list)
+
+
+def load_config() -> None:
+    """Fill os.environ from the config file for keys not already set."""
+    if not CONFIG_FILE.is_file():
+        return
+    for line in CONFIG_FILE.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def require_env(key: str) -> str:
+    value = os.environ.get(key)
+    if not value:
+        sys.exit(
+            f"error: {key} is not set (env var or {CONFIG_FILE}). "
+            "See SKILL.md for setup."
+        )
+    return value
+
+
+def firestore_client() -> firestore.Client:
+    inline = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+    file_path = os.environ.get("GOOGLE_SERVICE_ACCOUNT_FILE")
+    if inline:
+        info = json.loads(inline)
+    elif file_path:
+        info = json.loads(Path(file_path).expanduser().read_text())
+    else:
+        sys.exit(
+            "error: set GOOGLE_SERVICE_ACCOUNT_FILE (path) or "
+            f"GOOGLE_SERVICE_ACCOUNT_JSON (inline) — env var or {CONFIG_FILE}."
+        )
+    creds = service_account.Credentials.from_service_account_info(info)
+    return firestore.Client(project=info["project_id"], credentials=creds)
+
+
+def fetch_api_matches(token: str) -> list[dict]:
+    response = requests.get(
+        MATCHES_API_URL, headers={"X-Auth-Token": token}, timeout=15
+    )
+    if response.status_code == 429:
+        sys.exit("error: football-data.org rate limit hit (429) — retry in a minute")
+    response.raise_for_status()
+    return response.json().get("matches", [])
+
+
+def fetch_firestore_matches(db: firestore.Client) -> list[FirestoreMatch]:
+    matches = []
+    for snapshot in db.collection(MATCHES_COLLECTION).stream():
+        data = snapshot.to_dict() or {}
+        matches.append(
+            FirestoreMatch(
+                doc_id=snapshot.id,
+                match_number=str(data.get("matchNumber") or snapshot.id),
+                stage=data.get("stage"),
+                date_utc=as_aware(data.get("dateUtc")),
+                local_team=data.get("localTeam"),
+                visitor_team=data.get("visitorTeam"),
+                local_team_score=data.get("localTeamScore"),
+                visitor_team_score=data.get("visitorTeamScore"),
+            )
+        )
+    return matches
+
+
+def as_aware(value) -> datetime | None:
+    if not isinstance(value, datetime):
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
+def team_slug(name: str, known_slugs: frozenset[str]) -> str | None:
+    override = TEAM_NAME_OVERRIDES.get(name)
+    if override is not None:
+        return override
+    decomposed = unicodedata.normalize("NFKD", name)
+    ascii_only = decomposed.encode("ascii", "ignore").decode("ascii")
+    normalized = ascii_only.lower().strip().replace(" ", "-")
+    if normalized in known_slugs:
+        return normalized
+    return None
+
+
+def resolve_team_slugs(
+    api_match: dict, known_slugs: frozenset[str]
+) -> tuple[str, str] | None:
+    home_name = (api_match.get("homeTeam") or {}).get("name")
+    away_name = (api_match.get("awayTeam") or {}).get("name")
+    if not home_name or not away_name:
+        return None
+    home_slug = team_slug(home_name, known_slugs)
+    away_slug = team_slug(away_name, known_slugs)
+    if home_slug is None or away_slug is None:
+        return None
+    return home_slug, away_slug
+
+
+def describe(api_match: dict) -> str:
+    home = (api_match.get("homeTeam") or {}).get("name") or "?"
+    away = (api_match.get("awayTeam") or {}).get("name") or "?"
+    stage = api_match.get("stage") or "?"
+    date = api_match.get("utcDate") or "?"
+    return f"{stage} {date} ({home} vs {away})"
+
+
+def parse_utc_date(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return as_aware(datetime.fromisoformat(value.replace("Z", "+00:00")))
+    except ValueError:
+        return None
+
+
+def build_report(
+    api_matches: list[dict], firestore_matches: list[FirestoreMatch]
+) -> Report:
+    # The 48 prode team slugs, taken from the group-stage docs themselves —
+    # every team appears in the group stage.
+    known_slugs = frozenset(
+        slug
+        for m in firestore_matches
+        if m.stage == "group_stage"
+        for slug in (m.local_team, m.visitor_team)
+        if slug
+    )
+    group_index = {
+        frozenset({m.local_team, m.visitor_team}): m
+        for m in firestore_matches
+        if m.stage == "group_stage" and m.local_team and m.visitor_team
+    }
+    knockout_index = {
+        (m.stage, m.date_utc): m
+        for m in firestore_matches
+        if m.stage and m.stage != "group_stage" and m.date_utc is not None
+    }
+
+    report = Report()
+    for api_match in api_matches:
+        label = describe(api_match)
+        stage = API_STAGE_TO_PRODE_STAGE.get(api_match.get("stage") or "")
+        if stage is None:
+            report.unmatched.append(f"{label}: unknown stage")
+            continue
+
+        if stage == "group_stage":
+            slugs = resolve_team_slugs(api_match, known_slugs)
+            if slugs is None:
+                report.unmatched.append(f"{label}: unmappable team name")
+                continue
+            match = group_index.get(frozenset(slugs))
+            if match is None:
+                report.unmatched.append(f"{label}: no Firestore doc for this team pair")
+                continue
+        else:
+            date_utc = parse_utc_date(api_match.get("utcDate"))
+            if date_utc is None:
+                report.unmatched.append(f"{label}: unparseable utcDate")
+                continue
+            match = knockout_index.get((stage, date_utc))
+            if match is None:
+                report.unmatched.append(
+                    f"{label}: no Firestore doc at this stage+datetime"
+                )
+                continue
+            propose_team_fill(api_match, match, stage, known_slugs, report)
+
+        propose_score_update(api_match, match, label, report)
+    return report
+
+
+def propose_team_fill(
+    api_match: dict,
+    match: FirestoreMatch,
+    stage: str,
+    known_slugs: frozenset[str],
+    report: Report,
+) -> None:
+    if match.local_team is not None and match.visitor_team is not None:
+        return
+    slugs = resolve_team_slugs(api_match, known_slugs)
+    if slugs is None:
+        return
+    report.team_fills.append(
+        TeamFill(
+            doc_id=match.doc_id,
+            match_number=match.match_number,
+            stage=stage,
+            local_team=slugs[0],
+            visitor_team=slugs[1],
+        )
+    )
+
+
+def propose_score_update(
+    api_match: dict, match: FirestoreMatch, label: str, report: Report
+) -> None:
+    if api_match.get("status") != API_STATUS_FINISHED:
+        return
+    full_time = (api_match.get("score") or {}).get("fullTime") or {}
+    home_score = full_time.get("home")
+    away_score = full_time.get("away")
+    if home_score is None or away_score is None:
+        report.skipped.append(f"{label}: FINISHED but fullTime score is incomplete")
+        return
+    if (
+        match.local_team_score == home_score
+        and match.visitor_team_score == away_score
+    ):
+        report.in_sync.append(f"match {match.match_number}: {label}")
+        return
+    report.score_updates.append(
+        ScoreUpdate(
+            doc_id=match.doc_id,
+            match_number=match.match_number,
+            label=label,
+            new_score=(int(home_score), int(away_score)),
+            old_score=(match.local_team_score, match.visitor_team_score),
+        )
+    )
+
+
+def print_report(report: Report, total_api: int, total_firestore: int) -> None:
+    print(f"API matches: {total_api} | Firestore matches: {total_firestore}")
+    print()
+    print(f"SCORE UPDATES ({len(report.score_updates)}):")
+    for u in report.score_updates:
+        old = (
+            "no score"
+            if u.old_score == (None, None)
+            else f"was {u.old_score[0]}-{u.old_score[1]}"
+        )
+        print(
+            f"  match {u.match_number}: {u.new_score[0]}-{u.new_score[1]}"
+            f" ({old}) — {u.label}"
+        )
+    print()
+    print(f"TEAM FILLS ({len(report.team_fills)}):")
+    for f_ in report.team_fills:
+        print(
+            f"  match {f_.match_number} [{f_.stage}]:"
+            f" {f_.local_team} vs {f_.visitor_team}"
+        )
+    print()
+    print(f"Already in sync: {len(report.in_sync)}")
+    if report.skipped:
+        print(f"SKIPPED ({len(report.skipped)}):")
+        for line in report.skipped:
+            print(f"  {line}")
+    if report.unmatched:
+        print(f"UNMATCHED ({len(report.unmatched)}) — needs attention:")
+        for line in report.unmatched:
+            print(f"  {line}")
+
+
+def apply_report(db: firestore.Client, report: Report) -> None:
+    collection = db.collection(MATCHES_COLLECTION)
+    for u in report.score_updates:
+        collection.document(u.doc_id).update(
+            {
+                "localTeamScore": u.new_score[0],
+                "visitorTeamScore": u.new_score[1],
+            }
+        )
+        print(f"  ✓ match {u.match_number}: {u.new_score[0]}-{u.new_score[1]} written")
+    for f_ in report.team_fills:
+        collection.document(f_.doc_id).update(
+            {
+                "localTeam": f_.local_team,
+                "visitorTeam": f_.visitor_team,
+            }
+        )
+        print(
+            f"  ✓ match {f_.match_number}: teams {f_.local_team} vs"
+            f" {f_.visitor_team} written"
+        )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Sync WC2026 results from football-data.org into the prode"
+    )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default="dry-run",
+        choices=["dry-run", "apply"],
+        help="dry-run (default): print the proposal; apply: write it",
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="machine-readable report on stdout"
+    )
+    args = parser.parse_args()
+
+    load_config()
+    token = require_env("FOOTBALL_DATA_API_TOKEN")
+    db = firestore_client()
+
+    api_matches = fetch_api_matches(token)
+    firestore_matches = fetch_firestore_matches(db)
+    report = build_report(api_matches, firestore_matches)
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "dry_run": args.command == "dry-run",
+                    "score_updates": [asdict(u) for u in report.score_updates],
+                    "team_fills": [asdict(f_) for f_ in report.team_fills],
+                    "in_sync": len(report.in_sync),
+                    "skipped": report.skipped,
+                    "unmatched": report.unmatched,
+                },
+                default=str,
+                ensure_ascii=False,
+            )
+        )
+    else:
+        print_report(report, len(api_matches), len(firestore_matches))
+
+    if args.command == "apply":
+        nothing_to_write = not report.score_updates and not report.team_fills
+        if nothing_to_write:
+            print("\nNothing to apply.")
+            return
+        print("\nApplying:")
+        apply_report(db, report)
+        print("Done. The backend fingerprint task will pick this up within a minute.")
+    elif report.score_updates or report.team_fills:
+        print("\nDry run — nothing written. Run with `apply` to write.")
+
+
+if __name__ == "__main__":
+    main()
