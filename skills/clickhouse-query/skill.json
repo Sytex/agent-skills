@@ -1,0 +1,64 @@
+{
+  "name": "clickhouse-query",
+  "title": "ClickHouse Query",
+  "description": "Read-only HTTP client to explore the yulai event-tracking ClickHouse: HTTP requests and business actions (who does what, how often, how fast, trends, anomalies).",
+  "version": "1.0.0",
+  "setup_instructions": "Configure the ClickHouse HTTP endpoint and credentials for the yulai event store. This skill holds no secrets in the repo — they are stored locally in the skill's .env. The connection only issues read-only queries.",
+  "dependencies": [
+    {
+      "name": "curl",
+      "check": "curl --version",
+      "install": {
+        "darwin": "brew install curl",
+        "linux": "sudo apt-get install -y curl || sudo yum install -y curl",
+        "windows": "winget install cURL.cURL"
+      }
+    }
+  ],
+  "fields": [
+    {
+      "name": "endpoint",
+      "label": "ClickHouse HTTP endpoint",
+      "type": "text",
+      "required": true,
+      "env_var": "CLICKHOUSE_QUERY_ENDPOINT",
+      "help": "Base URL of the ClickHouse HTTP interface, e.g. https://your-clickhouse-host (no trailing slash)."
+    },
+    {
+      "name": "host_header",
+      "label": "Host header (optional)",
+      "type": "text",
+      "required": false,
+      "env_var": "CLICKHOUSE_QUERY_HOST_HEADER",
+      "help": "Only needed when hitting an internal load balancer DNS that routes by host. Leave blank otherwise."
+    },
+    {
+      "name": "user",
+      "label": "ClickHouse user",
+      "type": "text",
+      "required": true,
+      "default": "default",
+      "env_var": "CLICKHOUSE_QUERY_USER",
+      "help": "ClickHouse username (should have read-only rights)."
+    },
+    {
+      "name": "password",
+      "label": "ClickHouse password",
+      "type": "password",
+      "required": true,
+      "env_var": "CLICKHOUSE_QUERY_PASSWORD",
+      "help": "Password for the ClickHouse user. Pull it from your secrets manager and paste it here."
+    },
+    {
+      "name": "tenant",
+      "label": "Default tenant",
+      "type": "text",
+      "required": false,
+      "default": "app.sytex.io",
+      "env_var": "CLICKHOUSE_QUERY_TENANT",
+      "help": "Default tenant for convenience commands (production is app.sytex.io)."
+    }
+  ],
+  "test_command": "test",
+  "files": ["clickhouse", "SKILL.md", "README.md"]
+}
