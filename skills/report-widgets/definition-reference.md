@@ -24,7 +24,7 @@ Data warehouse tables to query. First source is the FROM table.
 | `entry_answers` | Form field answers | form_code, form_template_code, answer_entry_label, answer_value, answer_index, task_code, project_code |
 | `sites` | Sites | site_code, site_name, site_type, client_name, country, latitude, longitude |
 | `workstructures` | Workflows | workstructure_code, workstructure_status, project_name |
-| `custom_fields` | Custom fields | custom_field_name, custom_field_value, entity_type |
+| `custom_fields` | Custom fields attached to a task/workflow/quotation (NOT form answers — see note) | field_name, field_value, field_category, field_related_entity, task_id, task_code, project_id, workflow_id, quotation_id |
 | `materials` | Materials | material_code, material_name, material_category |
 | `simple_operations` | Material operations | operation_code, operation_status |
 | `purchase_orders` | Purchase orders | po_code, po_status, supplier_name |
@@ -32,6 +32,8 @@ Data warehouse tables to query. First source is the FROM table.
 | `stoppers` | Stoppers | stopper_type, stopper_status |
 
 > Always fetch the schema first (`definition_schema`) to get the exact columns available for each entity type. The list above is a summary.
+
+> **`custom_fields` vs `entry_answers`** — a value entered *inside a form* is an `entry_answers` row (`answer_entry_label`/`answer_value`, joined to `forms` on `form_code`). A value attached *to the object itself* (task classification, category, tags) is a `custom_fields` row (`field_name`/`field_value`). To break tasks down by a custom field, join `custom_fields` to `tasks` on `task_id` = tasks `entity_id`, then group by `field_value` filtered to one `field_name`.
 
 ## Columns
 
@@ -229,6 +231,7 @@ Optional Python script for post-processing. Receives `rows` (list of lists) and 
 
 Notes:
 
+- The script body runs **inside a method**, so it must END with `return {...}` (as shown above) — a bare `result = {...}` only assigns a local, the method returns `None`, and the widget errors with *"transform_script must return a dict"*.
 - `rows` items are positional lists, not dicts. If you need named access, build it yourself with `dict(zip(columns, row))`.
 - If the backend instance has not yet been updated to serialize `Decimal` values for sandbox args, some numeric aggregations can fail before the script runs. That issue must be fixed backend-side.
 

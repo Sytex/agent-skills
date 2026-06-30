@@ -233,6 +233,10 @@ Dynamic fields that attach to entities (tasks, workflows, quotations, site acces
 
 Useful for org-specific data that doesn't fit the standard schema. Query the `custom_fields` entity and filter by `field_related_entity` and `field_name`.
 
+**Columns:** `field_name`, `field_value` (TEXT), `field_category`, `field_related_entity`, plus join FKs `task_id`/`task_code`, `project_id`, `workflow_id`, `quotation_id`.
+
+**Don't confuse with form answers.** A value entered *inside a form* lives in `entry_answers` (`answer_entry_label`/`answer_value`, joined to `forms` on `form_code`). A value attached *to the object itself* (task classification, category, priority tags) lives in `custom_fields`. To break tasks down by a custom field, join `custom_fields` to `tasks` on `task_id` = tasks `entity_id`, then group by `field_value` filtered to a single `field_name`.
+
 ### Status Histories
 
 Status changes are tracked as separate entities:

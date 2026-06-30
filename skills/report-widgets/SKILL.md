@@ -124,6 +124,37 @@ api column-values entry_answers form_template_code
 
 - **Operational units** — Required when creating. Run `api ous` to get available OUs.
 
+## Dashboards (a separate object — this skill's `api` builds widgets only)
+
+A widget on its own renders only under **"All widgets"**. To group widgets into a page you create a **dashboard** (`/api/reportdashboard/`, or `sytex dashboards` in the CLI) — a separate object this `api` script does not manage.
+
+1. `POST /api/reportdashboard/` with `{"name", "description"}`, plus optionally `layout` + `dashboard_filters`. Returns the dashboard `id`. (On older instances `layout`/`dashboard_filters` are applied only via a follow-up `PATCH` — if create returns an empty layout, send the layout in `PATCH /api/reportdashboard/{id}/`.)
+2. Create or look up the widgets and collect their UUIDs.
+3. Set the `layout` via `PATCH /api/reportdashboard/{id}/` with the full positioned array.
+
+**Read-merge-write, never clobber.** `layout` replaces the whole array. To add or move one widget, GET the current dashboard, merge your change into its `layout`, then PATCH — don't send a hand-authored layout from scratch.
+
+### Grid
+
+`layout` is a positioned array on a **192-column square grid** (1 column of width = 1 row of height). Each item:
+
+```json
+{"id": "<uuid>", "kind": "widget", "x": 0, "y": 0, "cols": 64, "rows": 48, "grid_cols": 192, "widget_id": "<widget-uuid>"}
+```
+
+- Size keys are **`cols`/`rows`** — `w`/`h` (the common grid-library names) are **ignored**; an item without `cols`/`rows` renders at 0×0 and is invisible.
+- `kind` is one of `widget` | `filter` | `text` | `image`. A `filter` item carries `"filter": {"filter_id": "<source>.<column>"}` instead of `widget_id`.
+- Always stamp `grid_cols: 192`.
+- Footprint guide: `number` 32×20, bar/line/table 64×48, `pie` ~52×48, `filter` 44×16, `text` 64×32.
+
+### Global (dashboard) filters
+
+A shared "Period"-style control at the top is **suggested only when ≥2 widgets expose the same interactive filter** (date filters unify by type, so any two interactive date filters merge into one). `GET /api/reportdashboard/{id}/detect_filters/` returns the suggestions — persist them into the dashboard's `dashboard_filters` and add a matching `filter` layout item. A single widget's filter never fans out on its own.
+
+### Org check
+
+Verify the target org before creating anything — `sytex --profile <p>` (or this skill's `.env SYTEX_ORG_ID`) can point at an unintended org and widgets/dashboards land there silently. Switch first with `sytex org switch <id>`.
+
 ## Reference Files
 
 For detailed definition syntax, filter types, visualization options, and examples:
