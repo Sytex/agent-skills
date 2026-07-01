@@ -20,7 +20,6 @@ Skills for AI coding agents by the Sytex team.
 | [database](./skills/database)               | Read-only MySQL/MariaDB client for querying databases       |
 | [clickhouse-query](./skills/clickhouse-query) | Read-only ClickHouse client for the yulai event store (requests & actions analytics) |
 | [org-storage](./skills/org-storage)         | Report storage used by an organization (sums shared_file.file_size) |
-| [wizard](./skills/wizard)                   | Generate Sytex wizard JSON configurations                   |
 
 ## Supported Providers
 
