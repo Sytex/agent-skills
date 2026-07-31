@@ -146,13 +146,32 @@ cmd_projects() {
         esac
     done
 
-    gql "{ projects(first: $limit) { nodes { id name state progress { scope { total completed } } lead { name } } } }"
+    gql "{ projects(first: $limit) { nodes { id name state progress url lead { name } } } }"
 }
 
+# Resolve a project name to its UUID (first case-insensitive substring match).
+project_id_for_name() {
+    gql "{ projects(first: 50, filter: { name: { containsIgnoreCase: \\\"$1\\\" } }) { nodes { id } } }" \
+        | python3 -c 'import json,sys; ns=json.load(sys.stdin)["data"]["projects"]["nodes"]; print(ns[0]["id"] if ns else "")'
+}
+
+# `project <uuid|name>` — details plus every issue with its state, assignee and
+# linked PRs (Linear's GitHub integration attaches them, across repos).
 cmd_project() {
     local id="$1"
-    [[ -z "$id" ]] && echo "Error: project ID required" && exit 1
-    gql "{ project(id: \\\"$id\\\") { id name description state startDate targetDate progress { scope { total completed } } lead { name } issues { nodes { id identifier title state { name } } } } }"
+    [[ -z "$id" ]] && echo "Error: project ID or name required" && exit 1
+    [[ "$id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}- ]] || id=$(project_id_for_name "$id")
+    [[ -z "$id" ]] && echo "Error: no project matches that name" && exit 1
+    gql "{ project(id: \\\"$id\\\") { id name description state startDate targetDate progress url lead { name } issues(first: 100) { nodes { id identifier title url state { name type } assignee { name } attachments { nodes { title url } } } } } }"
+}
+
+cmd_project_create() {
+    local name="$1"
+    local team="$2"
+    local description="${3:-}"
+    [[ -z "$name" ]] && echo "Error: project name required" && exit 1
+    [[ -z "$team" ]] && echo "Error: team ID required" && exit 1
+    gql "mutation { projectCreate(input: { name: \\\"$name\\\", teamIds: [\\\"$team\\\"], description: \\\"$description\\\" }) { success project { id name url state } } }"
 }
 
 # === CYCLES ===
@@ -160,7 +179,7 @@ cmd_project() {
 cmd_cycles() {
     local team="$1"
     [[ -z "$team" ]] && echo "Error: team key required" && exit 1
-    gql "{ team(id: \\\"$team\\\") { cycles(first: 10, orderBy: startsAt) { nodes { id number name startsAt endsAt progress { scope { total completed } } } } } }"
+    gql "{ team(id: \\\"$team\\\") { cycles(first: 10, orderBy: startsAt) { nodes { id number name startsAt endsAt progress } } } }"
 }
 
 # === STATES ===
@@ -229,7 +248,8 @@ show_help() {
     echo ""
     echo "PROJECTS:"
     echo "  projects [--limit n]            List projects"
-    echo "  project <id>                    Get project details"
+    echo "  project <id|name>               Project details + issues, states and linked PRs"
+    echo "  project-create <name> <team-id> [description]"
     echo ""
     echo "CYCLES:"
     echo "  cycles <team-key>               List cycles for a team"
@@ -251,6 +271,7 @@ case "$1" in
     comment) cmd_comment "$2" "$3" ;;
     projects) shift; cmd_projects "$@" ;;
     project) cmd_project "$2" ;;
+    project-create) cmd_project_create "$2" "$3" "$4" ;;
     cycles) cmd_cycles "$2" ;;
     query) cmd_query "$2" ;;
     *) show_help ;;

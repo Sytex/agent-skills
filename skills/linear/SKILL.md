@@ -46,7 +46,8 @@ All commands: `~/.claude/skills/linear/linear <command>`
 | Command | Description |
 |---------|-------------|
 | `projects [--limit n]` | List projects |
-| `project <id>` | Get project details with issues |
+| `project <id\|name>` | Project details + issues with state, assignee and linked PRs |
+| `project-create <name> <team-id> [description]` | Create project |
 | `cycles <team-key>` | List cycles for a team |
 
 ### Generic
