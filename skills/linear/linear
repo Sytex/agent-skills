@@ -13,6 +13,12 @@ fi
 
 API_URL="https://api.linear.app/graphql"
 
+# Escape a string for embedding inside a JSON string literal (portable: BSD sed
+# lacks the GNU label syntax previously used for newline folding).
+json_escape() {
+    printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1])'
+}
+
 # GraphQL request helper
 gql() {
     local query="$1"
@@ -91,13 +97,34 @@ cmd_issue() {
     [[ -z "$id" ]] && echo "Error: issue ID or identifier required" && exit 1
 
     # Check if it's an identifier (e.g., TEAM-123) or UUID
+    local result
     if [[ "$id" =~ ^([A-Z]+)-([0-9]+)$ ]]; then
         local team_key="${BASH_REMATCH[1]}"
         local issue_number="${BASH_REMATCH[2]}"
-        gql "{ issues(filter: { number: { eq: $issue_number }, team: { key: { eq: \\\"$team_key\\\" } } }, first: 1) { nodes { id identifier title description state { name } assignee { name } project { name } priority priorityLabel labels { nodes { name } } createdAt updatedAt comments { nodes { body user { name } createdAt } } } } }"
+        result=$(gql "{ issues(filter: { number: { eq: $issue_number }, team: { key: { eq: \\\"$team_key\\\" } } }, first: 1) { nodes { id identifier title description state { name } assignee { name } project { name } priority priorityLabel labels { nodes { name } } createdAt updatedAt comments { nodes { body user { name } createdAt } } } } }")
     else
-        gql "{ issue(id: \\\"$id\\\") { id identifier title description state { name } assignee { name } project { name } priority priorityLabel labels { nodes { name } } createdAt updatedAt comments { nodes { body user { name } createdAt } } } }"
+        result=$(gql "{ issue(id: \\\"$id\\\") { id identifier title description state { name } assignee { name } project { name } priority priorityLabel labels { nodes { name } } createdAt updatedAt comments { nodes { body user { name } createdAt } } } }")
     fi
+
+    echo "$result"
+
+    # Attachments live behind uploads.linear.app; pull them so an agent can read them.
+    local urls
+    urls=$(echo "$result" | grep -oE 'https://uploads\.linear\.app/[^"\\)]+' | sort -u)
+    [[ -z "$urls" ]] && return
+
+    local paths=()
+    local n=0
+    while IFS= read -r url; do
+        n=$((n + 1))
+        local ext="png"
+        [[ "$url" =~ \.([a-zA-Z0-9]+)(\?|$) ]] && ext="${BASH_REMATCH[1]}"
+        local dest="/tmp/linear_img_${id}_${n}.${ext}"
+        curl -s -L -H "Authorization: $LINEAR_API_KEY" -o "$dest" "$url"
+        paths+=("$dest")
+    done <<< "$urls"
+
+    echo "IMAGES: ${paths[*]}" >&2
 }
 
 cmd_issue_create() {
@@ -109,7 +136,7 @@ cmd_issue_create() {
     [[ -z "$team" ]] && echo "Error: team key required" && exit 1
 
     # Escape description for JSON
-    description=$(echo "$description" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+    description=$(json_escape "$description")
 
     local mutation="mutation { issueCreate(input: { title: \\\"$title\\\", teamId: \\\"$team\\\", description: \\\"$description\\\" }) { success issue { id identifier title url } } }"
     gql "$mutation"
@@ -207,7 +234,7 @@ cmd_comment() {
     [[ -z "$issue_id" ]] && echo "Error: issue ID required" && exit 1
     [[ -z "$body" ]] && echo "Error: comment body required" && exit 1
 
-    body=$(echo "$body" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+    body=$(json_escape "$body")
     gql "mutation { commentCreate(input: { issueId: \\\"$issue_id\\\", body: \\\"$body\\\" }) { success comment { id body } } }"
 }
 
