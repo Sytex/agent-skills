@@ -1,6 +1,18 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["numpy>=1.26", "pillow>=10", "pytesseract>=0.3.10"]
+# ///
 """
 Hybrid screenshot useful-zone cropper.
+
+Run this file directly (`./crop_useful_zone.py`), not via `python3 ./crop_useful_zone.py`:
+the shebang routes it through `uv run --script`, which resolves the imports below
+from uv's own cached environment. Invoking an interpreter explicitly bypasses that
+and picks up whichever `python3` is first on PATH — on a host running kadmos that is
+the app's virtualenv, which has none of these packages.
+
+The `tesseract` binary is a system dependency uv cannot supply; see skill.json.
 
 Method:
 1) Deterministic: remove black borders and find high-saliency content interval.
@@ -16,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -450,6 +463,15 @@ def main() -> None:
     images = collect_images(input_dir, args.pattern)
     if not images:
         raise SystemExit(f"No images matched pattern '{args.pattern}' in {input_dir}")
+
+    # OCR is not optional here: ocr_boxes() feeds the saliency mask every crop is
+    # chosen from. Say so up front instead of failing per-image inside pytesseract.
+    if not shutil.which("tesseract"):
+        raise SystemExit(
+            "The 'tesseract' binary is not on PATH, and this script needs it for the OCR "
+            "saliency signal. Install it with: sudo apt-get install -y tesseract-ocr "
+            "(macOS: brew install tesseract)."
+        )
 
     results = []
     for img_path in images:
