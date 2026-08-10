@@ -2,16 +2,25 @@
   "name": "video-to-doc",
   "title": "Sytex Video Docs",
   "description": "Generate Sytex process documentation from screen recordings with cropped screenshots, Markdown output, and DOCX export using a corporate template.",
-  "version": "1.0.0",
-  "setup_instructions": "Requires Python 3 and Pandoc available in PATH.",
+  "version": "1.1.0",
+  "setup_instructions": "Requires uv, Pandoc and the tesseract OCR binary in PATH. The Python packages crop_useful_zone.py needs (numpy, pillow, pytesseract) are declared inline in that script and resolved by `uv run --script`, so no interpreter-level install is needed.",
   "dependencies": [
     {
-      "name": "python3",
-      "check": "python3 --version",
+      "name": "uv",
+      "check": "uv --version",
       "install": {
-        "darwin": "brew install python3",
-        "linux": "sudo apt-get install -y python3 || sudo yum install -y python3",
-        "windows": "winget install Python.Python.3"
+        "darwin": "curl -LsSf https://astral.sh/uv/install.sh | sh",
+        "linux": "curl -LsSf https://astral.sh/uv/install.sh | sh",
+        "windows": "winget install astral-sh.uv"
+      }
+    },
+    {
+      "name": "tesseract",
+      "check": "tesseract --version",
+      "install": {
+        "darwin": "brew install tesseract",
+        "linux": "sudo apt-get install -y tesseract-ocr",
+        "windows": "winget install UB-Mannheim.TesseractOCR"
       }
     },
     {

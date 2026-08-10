@@ -37,18 +37,24 @@ Para un `<base>`:
 1. Generar/actualizar Markdown principal y quickstart.
 2. Recortar screenshots a zona útil (in-place, sin carpeta extra):
 ```bash
-python3 ./crop_useful_zone.py \
+./crop_useful_zone.py \
   --input-dir "artifacts/<base>/screenshots" \
   --in-place \
   --pattern "*.png"
 ```
 3. Exportar ambos DOCX con template:
 ```bash
-python3 ./export_docx_from_template.py \
+./export_docx_from_template.py \
   --template "./Encabezado_membrete Hoja Sytex - 2025.docx" \
   --markdown "docs/<base>.md" "docs/<base>.quickstart.md" \
   --resource-path ".:docs:artifacts"
 ```
+
+> Invocar los scripts **directamente**, nunca con `python3 ./script.py`: el shebang de
+> `crop_useful_zone.py` los enruta por `uv run --script`, que resuelve `numpy`,
+> `pillow` y `pytesseract` por su cuenta. Anteponer un intérprete saltea eso y toma
+> el `python3` que esté primero en PATH — en un host con kadmos, el virtualenv de la
+> app, que no tiene ninguna de esas dependencias.
 
 ## Reglas de calidad
 
