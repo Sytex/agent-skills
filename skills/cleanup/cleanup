@@ -3,8 +3,6 @@
 set -euo pipefail
 
 PROJECTS_DIR="/home/ubuntu/projects"
-BACK_DIR="$PROJECTS_DIR/back"
-FRONT_DIR="$PROJECTS_DIR/front"
 CLAUDE_DIR="/home/ubuntu/.claude"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
@@ -17,7 +15,15 @@ header() { echo -e "\n${BOLD}── $* ──${NC}"; }
 
 DRY_RUN=0
 MAX_AGE=5
+
+# Filled in by cmd_worktrees, read by cmd_auto's summary.
 FAILED_WORKTREES=()
+SKIPPED_WORKTREES=()
+STALE_KB=0
+REMOVED_KB=0
+
+# Warn in the auto summary when this much stale worktree space survives the run.
+SHORTFALL_WARN_KB=524288   # 512 MB
 
 usage() {
   cat <<'EOF'
@@ -27,7 +33,7 @@ Commands:
   status                Show disk usage breakdown
   auto                  Run all safe cleanups (cron-safe)
   worktrees [--max-age DAYS]  Clean old worktrees (default: 5 days)
-  docker                Clean stopped containers + dangling images
+  docker                Clean stopped containers + dangling images + build cache
   cache                 Clean npm, apt, Claude telemetry/debug/sessions
   logs                  Vacuum journal + remove rotated logs
   tmp                   Clean /tmp files older than 1 day
@@ -43,18 +49,28 @@ EOF
 
 disk_before() { df --output=used / | tail -1 | tr -d ' '; }
 
+human_kb() {
+  local kb=$1
+  if (( kb > 1048576 )); then
+    echo "$(( kb / 1048576 )) GB"
+  elif (( kb > 1024 )); then
+    echo "$(( kb / 1024 )) MB"
+  else
+    echo "${kb} KB"
+  fi
+}
+
 report_saved() {
   local before=$1
   local after
   after=$(disk_before)
-  local saved_kb=$(( before - after ))
-  if (( saved_kb > 1048576 )); then
-    echo "$(( saved_kb / 1048576 )) GB"
-  elif (( saved_kb > 1024 )); then
-    echo "$(( saved_kb / 1024 )) MB"
-  else
-    echo "${saved_kb} KB"
-  fi
+  human_kb $(( before - after ))
+}
+
+dir_size_kb() {
+  local kb
+  kb=$(set +o pipefail; timeout 120 du -sk "$1" 2>/dev/null | cut -f1) || kb=""
+  echo "${kb:-0}"
 }
 
 # Try to remove a worktree directory, escalating through:
@@ -66,7 +82,7 @@ remove_worktree_path() {
   local master_dir=$1
   local wt_dir=$2
 
-  if git -C "$master_dir" worktree remove --force "$wt_dir" >/dev/null 2>&1; then
+  if [[ -n "$master_dir" ]] && git -C "$master_dir" worktree remove --force "$wt_dir" >/dev/null 2>&1; then
     return 0
   fi
   if rm -rf "$wt_dir" 2>/dev/null && [[ ! -e "$wt_dir" ]]; then
@@ -76,6 +92,224 @@ remove_worktree_path() {
     return 0
   fi
   return 1
+}
+
+# ── Worktree discovery ─────────────────────────────────────
+#
+# The old implementation globbed two hardcoded parents for SYT-*/worktree-*
+# directories. That missed most of the tree: `back` is a symlink, `front` no
+# longer exists, worktrees live under `.worktrees/` and nested inside the master
+# checkout, and plenty are not named SYT-*. Discovery is now derived from git
+# itself, with a bounded sweep for directories git has forgotten about.
+
+# Absolute path of every repository's main worktree, one per line. Computed once
+# per run: `find` over $PROJECTS_DIR is the expensive part.
+REPOS_CACHE=""
+REPOS_CACHED=0
+discover_repos() {
+  if (( REPOS_CACHED == 0 )); then
+    REPOS_CACHE=$(_discover_repos)
+    REPOS_CACHED=1
+  fi
+  [[ -n "$REPOS_CACHE" ]] && printf '%s\n' "$REPOS_CACHE"
+  return 0
+}
+
+_discover_repos() {
+  local gitpath common
+  # Symlinks are not followed, so the `back` -> sytex-monorepo-worktrees alias
+  # cannot make the same repo show up twice.
+  find "$PROJECTS_DIR" -maxdepth 3 \
+       \( -name node_modules -o -name .venv -o -name .angular \) -prune -o \
+       -name .git -print 2>/dev/null |
+  while IFS= read -r gitpath; do
+    common=$(git -C "$(dirname "$gitpath")" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || continue
+    # <main worktree>/.git — bare repos have no working tree to clean.
+    [[ "$(basename "$common")" == ".git" ]] || continue
+    realpath -q "$(dirname "$common")" || true
+  done | sort -u
+}
+
+# Linked worktrees of $1's repo (the main worktree is excluded), realpath'd.
+repo_worktrees() {
+  local main_dir=$1 path
+  git -C "$main_dir" worktree list --porcelain 2>/dev/null |
+  while IFS= read -r line; do
+    [[ "$line" == worktree\ * ]] || continue
+    path=$(realpath -q "${line#worktree }") || continue
+    [[ "$path" == "$main_dir" ]] && continue
+    echo "$path"
+  done
+}
+
+# Age in days, from the last commit — falling back to the directory mtime when
+# the gitdir link is broken. Never fails: a worktree git cannot read is exactly
+# the one most likely to be abandoned.
+worktree_age_days() {
+  local wt_dir=$1 last_commit ts now
+  now=$(date +%s)
+  last_commit=$(git -C "$wt_dir" log -1 --format="%ci" 2>/dev/null || echo "")
+  if [[ -n "$last_commit" ]]; then
+    ts=$(date -d "$last_commit" +%s 2>/dev/null || echo "")
+  fi
+  [[ -z "${ts:-}" ]] && ts=$(stat -c %Y "$wt_dir" 2>/dev/null || echo "$now")
+  echo $(( (now - ts) / 86400 ))
+}
+
+# Why this worktree must not be removed, or empty when it is safe to remove.
+# Uncommitted or unpushed work is never discarded, no matter how old.
+worktree_hold_reason() {
+  local wt_dir=$1 head status_out
+  # An unreadable gitdir means an orphan: there is no git state left to lose.
+  git -C "$wt_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+  # But if git calls it a work tree and still cannot report on it, hold — an
+  # unanswerable question is not the same as a clean answer.
+  if ! status_out=$(git -C "$wt_dir" status --porcelain 2>/dev/null); then
+    echo "git status unreadable"
+    return 0
+  fi
+  if [[ -n "$status_out" ]]; then
+    echo "uncommitted changes"
+    return 0
+  fi
+  head=$(git -C "$wt_dir" rev-parse --verify HEAD 2>/dev/null) || return 0
+  # Reachable from any remote-tracking ref? Merged branches pass via origin/master.
+  if [[ -z "$(git -C "$wt_dir" for-each-ref --contains "$head" --count=1 refs/remotes/ 2>/dev/null)" ]]; then
+    echo "unpushed commits"
+  fi
+}
+
+# Shared directories that must never be swept, however they get nominated.
+# $PROJECTS_DIR itself holds hundreds of unrelated files and ad-hoc checkouts.
+is_safe_container() {
+  local dir=$1
+  [[ -n "$dir" && -d "$dir" ]] || return 1
+  case "$dir" in
+    "$PROJECTS_DIR"|/home/ubuntu|/home|/tmp|/var|/) return 1 ;;
+  esac
+  return 0
+}
+
+# Directories that exist only to hold worktrees, and can therefore be swept for
+# leftovers git no longer knows about. Deliberately narrow — a directory earns a
+# sweep only by convention:
+#   - the parent of a main worktree named master/main (<repo>/master + siblings)
+#   - a .worktrees/worktrees directory
+#   - the main worktree itself, for worktrees nested inside it
+# Anything else is left alone. In particular the parent of an arbitrary worktree
+# does NOT qualify: on Kadmos a checkout lives directly in $PROJECTS_DIR, which
+# would otherwise nominate the whole projects directory for deletion.
+orphan_containers() {
+  local main_dir=$1 parent wt p
+  local -a candidates=()
+  parent=$(dirname "$main_dir")
+
+  case "$(basename "$main_dir")" in
+    master|main) candidates+=("$parent") ;;
+  esac
+  candidates+=("$main_dir/.worktrees" "$parent/.worktrees")
+
+  while IFS= read -r wt; do
+    [[ -n "$wt" ]] || continue
+    p=$(dirname "$wt")
+    case "$(basename "$p")" in
+      .worktrees|worktrees) candidates+=("$p") ;;
+      *) [[ "$p" == "$main_dir" ]] && candidates+=("$p") ;;
+    esac
+  done < <(repo_worktrees "$main_dir")
+
+  for p in "${candidates[@]}"; do
+    is_safe_container "$p" && echo "$p"
+  done
+  return 0
+}
+
+# Does any directory between $1 and $PROJECTS_DIR hold a .git? Used instead of
+# asking git, so that dubious-ownership or safe.directory config can never make
+# tracked content look like garbage.
+has_git_ancestor() {
+  local dir=$1
+  while [[ "$dir" != "/" && "$dir" != "$PROJECTS_DIR" ]]; do
+    dir=$(dirname "$dir")
+    [[ -e "$dir/.git" ]] && return 0
+  done
+  return 1
+}
+
+# Is $1 a leftover worktree directory rather than live content? Purely a
+# filesystem judgement — the whole point is that git can no longer answer.
+is_orphan_dir() {
+  local dir=$1 gitdir
+  case "$(basename "$dir")" in
+    master|main|.git|.worktrees|worktrees) return 1 ;;
+  esac
+  [[ -L "$dir" ]] && return 1
+  # A .git *directory* is a repository root — never ours to remove.
+  [[ -d "$dir/.git" ]] && return 1
+
+  if [[ -f "$dir/.git" ]]; then
+    # A .git *file* is a linked worktree. Orphaned only if the gitdir it points
+    # at is gone; an intact link belongs to a repo, which owns its own cleanup.
+    gitdir=$(sed -n 's/^gitdir: //p' "$dir/.git" 2>/dev/null | head -1)
+    [[ -n "$gitdir" && -d "$gitdir" ]] && return 1
+    return 0
+  fi
+
+  # No git metadata at all (bind-mount stub residue). Garbage only when the
+  # directory is not tracked content of some working tree.
+  ! has_git_ancestor "$dir"
+}
+
+# Every removable worktree, as "<path>\t<main worktree, for git worktree remove>".
+# Live worktrees first, then the orphan sweep.
+enumerate_worktrees() {
+  local main_dir wt container child
+  local -A known=()
+
+  # Is any known worktree a descendant of $1? Guards against removing a
+  # directory (a .worktrees dir, say) that still contains live checkouts.
+  encloses_known() {
+    local base=$1 k
+    for k in "${!known[@]}"; do
+      [[ "$k" == "$base"/* ]] && return 0
+    done
+    return 1
+  }
+
+  discover_repos >/dev/null   # prime the cache in this shell, not in a subshell
+
+  # Main worktrees are never removable, and must be marked before the sweep so
+  # one repo's container can never propose another repo's checkout.
+  while IFS= read -r main_dir; do
+    [[ -n "$main_dir" ]] && known["$main_dir"]=1
+  done < <(discover_repos)
+
+  while IFS= read -r main_dir; do
+    [[ -n "$main_dir" ]] || continue
+    while IFS= read -r wt; do
+      [[ -n "$wt" ]] || continue
+      known["$wt"]=1
+      printf '%s\t%s\n' "$wt" "$main_dir"
+    done < <(repo_worktrees "$main_dir")
+  done < <(discover_repos)
+
+  # Second pass: sweep the worktree containers for directories git has forgotten.
+  while IFS= read -r main_dir; do
+    [[ -n "$main_dir" ]] || continue
+    while IFS= read -r container; do
+      [[ -d "$container" ]] || continue
+      for child in "$container"/*/ "$container"/.[!.]*/; do
+        [[ -d "$child" ]] || continue
+        child=$(realpath -q "${child%/}") || continue
+        [[ -n "${known[$child]:-}" ]] && continue
+        is_orphan_dir "$child" || continue
+        # Never remove a directory that a live worktree lives inside.
+        encloses_known "$child" && continue
+        known["$child"]=1
+        printf '%s\t%s\n' "$child" "$main_dir"
+      done
+    done < <(orphan_containers "$main_dir" | sort -u)
+  done < <(discover_repos)
 }
 
 # ── Status ─────────────────────────────────────────────────
@@ -88,11 +322,13 @@ cmd_status() {
   echo "  Category                     Size"
   echo "  ─────────────────────────────────────"
 
-  local docker_size snap_size
+  local docker_size snap_size build_cache
   docker_size=$(docker system df 2>/dev/null | awk 'NR==2{print $4}') || docker_size="N/A"
+  build_cache=$(docker system df 2>/dev/null | awk '/^Build Cache/{print $(NF-1)}') || build_cache="N/A"
   snap_size=$(set +o pipefail; du -sh /snap 2>/dev/null | cut -f1) || snap_size="N/A"
 
   printf "  %-30s %s\n" "Docker (images)" "$docker_size"
+  printf "  %-30s %s\n" "Docker (build cache)" "${build_cache:-N/A}"
   printf "  %-30s %s\n" "Snap (/snap)" "$snap_size"
 
   for d in projects .rustup .local .claude .nvm .npm kadmos .cache .cargo mysql; do
@@ -103,25 +339,32 @@ cmd_status() {
     fi
   done
 
-  header "Worktrees"
-  local count=0
-  for dir in "$BACK_DIR"/SYT-*/ "$FRONT_DIR"/SYT-*/; do
-    [[ -d "$dir" ]] || continue
-    local name age_days sz
-    name=$(basename "$dir")
-    local repo=$(basename "$(dirname "$dir")")
-    local last_commit
-    last_commit=$(git -C "$dir" log -1 --format="%ci" 2>/dev/null || echo "")
-    if [[ -n "$last_commit" ]]; then
-      age_days=$(( ($(date +%s) - $(date -d "$last_commit" +%s)) / 86400 ))
-    else
-      age_days="?"
+  header "Worktrees (stale = older than ${MAX_AGE}d)"
+  discover_repos >/dev/null   # prime the cache here, so the subshells below inherit it
+  local count=0 reclaimable_kb=0
+  local wt main_dir age size_kb hold flag
+  while IFS=$'\t' read -r wt main_dir; do
+    [[ -n "$wt" ]] || continue
+    age=$(worktree_age_days "$wt")
+    size_kb=$(dir_size_kb "$wt")
+    hold=$(worktree_hold_reason "$wt")
+    flag=""
+    if (( age > MAX_AGE )); then
+      if [[ -n "$hold" ]]; then
+        flag="held: $hold"
+      else
+        flag="STALE"
+        reclaimable_kb=$(( reclaimable_kb + size_kb ))
+      fi
     fi
-    sz=$(du -sh "$dir" 2>/dev/null | cut -f1)
-    printf "  %-45s %6s  %s days\n" "$repo/$name" "$sz" "$age_days"
+    printf "  %-80s %8s  %4sd  %s\n" "${wt#"$PROJECTS_DIR"/}" "$(human_kb "$size_kb")" "$age" "$flag"
     count=$((count + 1))
-  done
+  done < <(enumerate_worktrees | sort)
   [[ $count -eq 0 ]] && echo "  (none)"
+
+  if (( reclaimable_kb > 0 )); then
+    warn "Reclaimable from stale worktrees: $(human_kb "$reclaimable_kb") — run 'cleanup worktrees'"
+  fi
 
   header "Docker Containers"
   docker ps -a --format "  {{.Names}}  {{.Status}}" 2>/dev/null || echo "  (docker not available)"
@@ -129,63 +372,76 @@ cmd_status() {
 
 # ── Worktree Cleanup ──────────────────────────────────────
 
+# Containers Compose derived from a worktree directory: an exact match or a
+# <name>-… / <name>_… prefix, compared case-insensitively and literally. A bare
+# substring match would let a worktree named e.g. "sytex" hit master-sytex-1.
+worktree_containers() {
+  local name_lc
+  name_lc=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  docker ps -a --format "{{.Names}}" 2>/dev/null |
+    awk -v p="$name_lc" '{ n = tolower($0) } n == p || index(n, p "-") == 1 || index(n, p "_") == 1 { print }' ||
+    true
+}
+
 cmd_worktrees() {
   header "Worktree Cleanup (max age: ${MAX_AGE} days)"
+  discover_repos >/dev/null   # prime the cache here, so the subshells below inherit it
   local cleaned=0
   local failed=0
+  local wt main_dir name age size_kb hold containers cname
 
-  for repo_dir in "$BACK_DIR" "$FRONT_DIR"; do
-    local master_dir="$repo_dir/master"
-    [[ -d "$master_dir/.git" ]] || continue
-    local repo_name
-    repo_name=$(basename "$repo_dir")
+  while IFS=$'\t' read -r wt main_dir; do
+    [[ -n "$wt" ]] || continue
+    [[ -d "$wt" ]] || continue
+    name=${wt#"$PROJECTS_DIR"/}
+    age=$(worktree_age_days "$wt")
+    (( age > MAX_AGE )) || continue
 
-    for wt_dir in "$repo_dir"/SYT-*/ "$repo_dir"/worktree-*/; do
-      [[ -d "$wt_dir" ]] || continue
-      local branch
-      branch=$(basename "$wt_dir")
-      local last_commit
-      last_commit=$(git -C "$wt_dir" log -1 --format="%ci" 2>/dev/null || echo "")
-      [[ -z "$last_commit" ]] && continue
+    hold=$(worktree_hold_reason "$wt")
+    if [[ -n "$hold" ]]; then
+      info "Keeping $name (${age}d old) — $hold"
+      SKIPPED_WORKTREES+=("$name (${age}d) — $hold")
+      continue
+    fi
 
-      local age_days
-      age_days=$(( ($(date +%s) - $(date -d "$last_commit" +%s)) / 86400 ))
+    size_kb=$(dir_size_kb "$wt")
+    STALE_KB=$(( STALE_KB + size_kb ))
 
-      if (( age_days > MAX_AGE )); then
-        local sz
-        sz=$(du -sh "$wt_dir" 2>/dev/null | cut -f1)
+    if [[ $DRY_RUN -eq 1 ]]; then
+      info "[DRY RUN] Would remove $name ($(human_kb "$size_kb"), ${age}d old)"
+      continue
+    fi
 
-        if [[ $DRY_RUN -eq 1 ]]; then
-          info "[DRY RUN] Would remove $repo_name/$branch ($sz, ${age_days}d old)"
-        else
-          # Stop related Docker containers
-          local containers
-          containers=$(docker ps -a --format "{{.Names}}" 2>/dev/null | grep -i "${branch}" || true)
-          if [[ -n "$containers" ]]; then
-            while IFS= read -r cname; do
-              info "Stopping container $cname..."
-              docker stop "$cname" >/dev/null 2>&1 || true
-              docker rm "$cname" >/dev/null 2>&1 || true
-            done <<< "$containers"
-          fi
+    # Stop related Docker containers
+    containers=$(worktree_containers "$(basename "$wt")")
+    if [[ -n "$containers" ]]; then
+      while IFS= read -r cname; do
+        info "Stopping container $cname..."
+        docker stop "$cname" >/dev/null 2>&1 || true
+        docker rm "$cname" >/dev/null 2>&1 || true
+      done <<< "$containers"
+    fi
 
-          info "Removing $repo_name/$branch ($sz, ${age_days}d old)..."
-          if remove_worktree_path "$master_dir" "$wt_dir"; then
-            cleaned=$((cleaned + 1))
-          else
-            warn "Failed to remove $repo_name/$branch — likely root-owned bind-mount paths"
-            FAILED_WORKTREES+=("$repo_name/$branch ($sz, ${age_days}d)")
-            failed=$((failed + 1))
-          fi
-        fi
-      fi
-    done
+    info "Removing $name ($(human_kb "$size_kb"), ${age}d old)..."
+    if remove_worktree_path "$main_dir" "$wt"; then
+      cleaned=$((cleaned + 1))
+      REMOVED_KB=$(( REMOVED_KB + size_kb ))
+    else
+      warn "Failed to remove $name — likely root-owned bind-mount paths"
+      FAILED_WORKTREES+=("$name ($(human_kb "$size_kb"), ${age}d)")
+      failed=$((failed + 1))
+    fi
+  done < <(enumerate_worktrees | sort)
 
-    git -C "$master_dir" worktree prune 2>/dev/null || true
-  done
+  local main_dir_prune
+  while IFS= read -r main_dir_prune; do
+    [[ -n "$main_dir_prune" ]] && git -C "$main_dir_prune" worktree prune 2>/dev/null || true
+  done < <(discover_repos)
 
-  if [[ $DRY_RUN -eq 0 ]]; then
-    ok "Cleaned $cleaned worktree(s)"
+  if [[ $DRY_RUN -eq 1 ]]; then
+    info "[DRY RUN] Reclaimable: $(human_kb "$STALE_KB")"
+  else
+    ok "Cleaned $cleaned worktree(s), $(human_kb "$REMOVED_KB") reclaimed"
     if (( failed > 0 )); then
       warn "Skipped $failed worktree(s) that could not be removed"
     fi
@@ -198,9 +454,11 @@ cmd_docker() {
   header "Docker Cleanup"
 
   if [[ $DRY_RUN -eq 1 ]]; then
-    local stopped
+    local stopped cache
     stopped=$(docker ps -a --filter "status=exited" --format "{{.Names}}" 2>/dev/null | wc -l)
+    cache=$(docker builder du 2>/dev/null | awk '/^Reclaimable:/{print $2}') || cache="unknown"
     info "[DRY RUN] Would remove $stopped stopped container(s) + dangling images/volumes"
+    info "[DRY RUN] Would prune build cache older than 7 days (reclaimable: ${cache:-unknown})"
     return
   fi
 
@@ -219,6 +477,12 @@ cmd_docker() {
   docker image prune -f >/dev/null 2>&1 || true
   docker volume prune -f >/dev/null 2>&1 || true
   ok "Pruned dangling images and volumes"
+
+  # Build cache — neither `system prune` nor `image prune` touches it, which is
+  # how it grew to ~6 GB with nothing in use. Keep the last week so builds for
+  # work in flight stay warm.
+  docker builder prune --all --force --filter until=168h >/dev/null 2>&1 || true
+  ok "Pruned build cache older than 7 days"
 }
 
 # ── Cache Cleanup ──────────────────────────────────────────
@@ -323,6 +587,22 @@ cmd_auto() {
       echo "        back/cli/target, back/sytex.io.{crt,key}) need to be"
       echo "        removed with sudo, or the dev setup fixed so they are"
       echo "        pre-created with the correct ownership."
+    fi
+
+    if (( ${#SKIPPED_WORKTREES[@]} > 0 )); then
+      warn "Worktrees held back (uncommitted or unpushed work):"
+      for entry in "${SKIPPED_WORKTREES[@]}"; do
+        echo "    - $entry"
+      done
+    fi
+
+    # Fail loudly when the run saw far more stale space than it managed to free,
+    # instead of reporting a healthy-looking "Recovered: 44 KB".
+    local shortfall_kb=$(( STALE_KB - REMOVED_KB ))
+    if (( shortfall_kb > SHORTFALL_WARN_KB )); then
+      warn "$(human_kb "$shortfall_kb") of stale worktree space was NOT reclaimed"
+      echo "  Seen stale: $(human_kb "$STALE_KB")  ·  removed: $(human_kb "$REMOVED_KB")"
+      echo "  Run 'cleanup status' for the per-worktree breakdown."
     fi
   fi
 }
