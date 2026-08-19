@@ -1,39 +1,49 @@
 ---
 name: impleload
-description: Use this skill when an agent must operate Impleload from the CLI, automate implementation workload tasks, create/update/list/delete activities, create/update/list/delete dated worklogs, authenticate with Google CLI auth, or act through IMPLELOAD_AGENT_TOKEN with an actor email or Discord user. Use for business operations around implementer capacity, client implementation activities, scope consumption, work performed on declared dates, and audited agent-driven changes.
+description: Operate Impleload through its official CLI for client activities, implementer capacity, scope, and dated worklogs. Use when a user asks to plan or assign client work, record work already performed, manage activities or worklogs, authenticate, or make audited agent-driven changes. Infer activity versus worklog from intent even when the user mixes the terms.
 ---
 
 # Impleload CLI
 
-## Purpose
+Use the official `impleload` CLI to preserve backend validation and audit attribution. Prefer `--output json` when resolving ids or verifying changes.
 
-Use the Impleload CLI to operate implementation workload data from a terminal, script, or agent. It is the preferred non-browser interface for activity and worklog operations because it preserves backend validation, authentication, and audit attribution.
+## Interpret The Request
 
-## Decide Whether To Use The CLI
+Do not classify the request from the words “activity” or “worklog” alone. Infer the business fact:
 
-Use the CLI when the task asks to:
+- Treat past work tied to a date, duration, or completed action as a **worklog**.
+- Treat weekly planning, assignment, scope, contract dates, active state, or future work as an **activity**.
+- Handle both separately when one request contains planning and performed work.
+- Infer missing details only when the context supports one safe interpretation.
+- If more than one plausible interpretation remains, ask the user to clarify before choosing an entity or executing a command. Never guess.
 
-- List, inspect, create, update, or delete implementation activities.
-- Record, inspect, update, or delete dated worklogs for an activity.
-- Automate Impleload operations from an agent, bot, scheduled job, or script.
-- Perform an audited action on behalf of a user identified by email or Discord user id.
-- Check the authenticated CLI user with `auth whoami`.
+Examples:
 
-## Locate The Binary
+- “Mi actividad de ayer fue el kickoff de Vista” means a worklog for the matching existing Vista activity, dated yesterday. Ask for the hours if missing or for the activity if several match.
+- “Creá una actividad de kickoff para Vista con 2 horas semanales” means an activity with `load_hours = 2`.
+- “Ayer hice el kickoff de Vista durante 1 hora” means a one-hour worklog with description `Kickoff`.
+- “Cargá 2 horas para Vista” is ambiguous: ask whether this is weekly planned load or work already performed and, for performed work, ask for the date.
 
-Prefer an installed `impleload` on `PATH`. To install the released CLI:
+An activity holds the client work agreement and plan:
 
-```bash
-bash -lc 'set -euo pipefail; mkdir -p "$HOME/.local/bin"; tmp_file="$(mktemp)"; curl -fsSL https://impleload.sytex.io/static/cli/install.sh -o "$tmp_file"; IMPLELOAD_CLI_INSTALL_DIR="$HOME/.local/bin" bash "$tmp_file"; rm -f "$tmp_file"'
-```
+- `load_hours`: planned hours per week; it is not progress or consumed scope.
+- `scope_hours`: total agreed hours.
+- Optional implementer, start/end dates, and active state.
 
-The installer detects the user's OS and CPU architecture and downloads the matching release binary. If `impleload` is still not found after installation, use `$HOME/.local/bin/impleload` (or `$HOME/.local/bin/impleload.exe` on Windows/Git Bash) or add `$HOME/.local/bin` to `PATH`.
+A worklog records work that happened:
 
-Use `impleload --help` and subcommand help when in doubt. The CLI is intentionally small and self-documenting.
+- Existing activity, implementer, `work_date`, hours, and Markdown description.
+- Worklogs consume scope; they do not reduce `load_hours`.
+- `week_start` is derived from `work_date`; use `--work-date` for new operations.
+- Never set `scope_completed_hours` or other derived progress fields directly.
+
+Keep distinct non-contiguous work periods as separate worklogs unless the user explicitly asks to aggregate them.
 
 ## Authentication
 
-If this skill was installed with the Agent Skills installer, configuration may exist in `.env` alongside `SKILL.md` in the installed skill directory. Source it before running CLI commands when available:
+Prefer `impleload` on `PATH`; otherwise use the dependency installer declared in `skill.json` or `$HOME/.local/bin/impleload`. Use `impleload --help` and subcommand help for the installed version.
+
+If an installed skill-local `.env` exists, source it without displaying its contents:
 
 ```bash
 set -a
@@ -41,152 +51,64 @@ source .env
 set +a
 ```
 
-For an OAuth session, use Google CLI auth:
+Use either OAuth:
 
 ```bash
 impleload auth login
 impleload auth whoami
 ```
 
-Important details:
-
-- `auth login` uses Google OAuth Desktop + PKCE and stores local session files.
-- `auth whoami` verifies the saved token against `/api/me`.
-- Use `--base-url` or `IMPLELOAD_BASE_URL` when targeting a non-default backend.
-- Use `auth login --no-open` only for headless environments where the user can open the printed URL manually.
-- An agent can use OAuth too, but the login/session must be prepared before asking the agent to make changes.
-
-For token-based agent auth:
+Or token-based agent authentication:
 
 ```bash
-export IMPLELOAD_AGENT_TOKEN=...
-impleload --actor-email user@sytex.io activities list
-impleload --actor-discord-user 123456789 worklogs list --activity-id 1
+impleload --actor-email user@sytex.io --output json activities list
+impleload --actor-discord-user 123456789 --output json worklogs list --activity-id 1
 ```
 
-Rules for token-based agent mode:
+In agent mode, require `IMPLELOAD_AGENT_TOKEN` and exactly one real actor through `--actor-email`, `--actor-discord-user`, or its matching environment variable. Never invent an actor.
 
-- Always provide exactly one actor: `--actor-email` or `--actor-discord-user`.
-- The installer may configure `IMPLELOAD_AGENT_TOKEN`, but the actor is still required per command unless `IMPLELOAD_ACTOR_EMAIL` or `IMPLELOAD_ACTOR_DISCORD_USER` is already set in the environment.
-- Do not invent actors. Use the actor supplied by the user or a trusted system context.
-- The actor is used for audit attribution, so it must represent the real user being acted for.
+Distinguish identities:
 
-## Common Options
+- The actor identifies the real user on whose behalf the audited command runs.
+- The activity/worklog `implementer_id` identifies who owns the plan or performed the work.
+- When worklog `--implementer-id` is omitted, creation inherits the activity implementer. Supply it when someone else performed the work.
 
-Global options:
+Use `--base-url` or `IMPLELOAD_BASE_URL` for non-default backends. Confirm the target backend before mutations.
+
+## Commands
+
+Activities:
 
 ```bash
---base-url <URL>        # backend URL; env: IMPLELOAD_BASE_URL
---output table|json    # table by default; use json for scripts/parsing
---actor-email <EMAIL>  # requires IMPLELOAD_AGENT_TOKEN
---actor-discord-user <ID>
+impleload --output json activities list [--active true|false] [--client-id ID] [--implementer-id ID]
+impleload --output json activities get ACTIVITY_ID
+impleload --output json activities create --client-id ID --label "Kickoff" --load-hours 2 [--implementer-id ID] [--scope-hours HOURS]
+impleload --output json activities update ACTIVITY_ID [--load-hours HOURS] [--scope-hours HOURS] [--start-date YYYY-MM-DD] [--end-date YYYY-MM-DD] [--active true|false]
+impleload --output json activities delete ACTIVITY_ID
 ```
 
-Use `--output json` for automation and when you need stable ids or structured fields. Use table output only for human summaries.
+Use `--clear-implementer` to remove an activity assignment. The backend enforces ids, dates, `load_hours >= 1`, and implementer capacity.
 
-## Activities
-
-Activities represent planned implementation work for a client and carry weekly load, total scope, dates, optional implementer assignment, and active state.
-
-Conceptual rules:
-
-- `load_hours` is the weekly plan: how many hours the implementer is expected to spend per week on that activity.
-- `scope_hours` is the total agreement with the client for that activity.
-- Worklogs record worked hours and consume the total scope. They do not consume the weekly plan.
-- Worklogs are created with `work_date`, the specific date when the implementer declares the work was performed.
-- `week_start` is derived from `work_date` for weekly board/report aggregation and historical compatibility; prefer `--work-date` in CLI commands.
-- Scope progress is derived from worklogs (`consumed_hours_total`, `scope_completed_hours`, `scope_percent`, and `scope_overrun_hours`), not manually edited.
-- In the Impleload board, block sizing and capacity indicators may represent weekly plan/actuals, but progress bars inside activities must represent only scope consumed: `consumed_hours_total / scope_hours`.
-- If an activity has no `scope_hours > 0`, do not show a scope progress bar for it.
-
-Core commands:
+Worklogs:
 
 ```bash
-impleload activities list [--active true|false] [--client-id ID] [--implementer-id ID]
-impleload activities get ACTIVITY_ID
-impleload activities create --client-id ID --label "Kickoff" --load-hours 2
-impleload activities update ACTIVITY_ID --label "New label"
-impleload activities delete ACTIVITY_ID
+impleload --output json worklogs list --activity-id ACTIVITY_ID
+impleload --output json worklogs get WORK_LOG_ID
+impleload --output json worklogs create --activity-id ACTIVITY_ID --work-date YYYY-MM-DD --hours HOURS --description-md "Trabajo realizado" [--implementer-id ID]
+impleload --output json worklogs update WORK_LOG_ID [--work-date YYYY-MM-DD] [--hours HOURS] [--description-md "Corrección"] [--implementer-id ID]
+impleload --output json worklogs delete WORK_LOG_ID
 ```
 
-Useful create/update fields:
+Treat `--week-start` as a legacy alias. Do not use it in new commands.
 
-```bash
---implementer-id ID
---clear-implementer
---load-hours HOURS
---revenue-usd AMOUNT
---scope-hours HOURS
---start-date YYYY-MM-DD
---end-date YYYY-MM-DD
---active true|false
-```
+The CLI cannot change a worklog's `activity_id`. To move one, copy it to the destination while preserving implementer, date, hours, and description; verify exact content and totals; then delete the source only after explicit approval.
 
-Business rules are enforced by the backend. Expect errors if `load_hours < 1`, capacity would be exceeded, ids do not exist, or dates/scope are invalid.
-Do not try to set `scope_completed_hours` directly; create, update, or delete worklogs instead.
+## Safe Mutation Workflow
 
-## Worklogs
+1. Resolve current ids and fields with `list` or `get`; JSON list responses use `{ "items": [...] }`.
+2. For worklogs, confirm the activity matches the declared date and check implementer/date/activity/content duplicates.
+3. Present the exact proposed changes and wait for explicit approval before production writes unless the user's current instruction already unambiguously authorizes those exact mutations.
+4. Run the smallest required create, update, or delete command.
+5. Read back each affected record and verify fields and totals.
 
-Worklogs record consumed hours and Markdown descriptions against an activity on a declared work date.
-
-Core commands:
-
-```bash
-impleload worklogs list --activity-id ACTIVITY_ID
-impleload worklogs get WORK_LOG_ID
-impleload worklogs create --activity-id ACTIVITY_ID --work-date YYYY-MM-DD --hours 2 --description-md "Trabajo realizado"
-impleload worklogs update WORK_LOG_ID --hours 3 --description-md "Ajuste de avance"
-impleload worklogs delete WORK_LOG_ID
-```
-
-Use `--work-date YYYY-MM-DD` for create/update when changing the declared date. Older CLI/API flows may mention `--week-start`; treat it as a legacy alias and do not use it in new examples.
-
-Use `--implementer-id ID` when the worklog should be attributed to a specific implementer. If omitted, backend behavior may use the activity assignment depending on the API rules.
-
-## Safety Workflow
-
-Before mutating data:
-
-1. Resolve target ids with `list` or `get`.
-2. Prefer `--output json` if you need to inspect exact ids or fields.
-3. State the intended mutation in plain language when the action is destructive or externally visible.
-4. Run the smallest command that performs the requested change.
-5. Verify with `get` or `list` after create, update, or delete.
-
-For deletes, only proceed when the user clearly requested deletion or the surrounding task provides explicit approval.
-
-## Error Handling
-
-If the CLI returns an API error, report the status/code/message and do not retry blindly. Common causes are missing auth, wrong `--base-url`, missing actor in agent mode, invalid ids, capacity constraints, or business validation failures.
-
-If auth fails:
-
-- Run `impleload auth whoami` for OAuth sessions.
-- Check `IMPLELOAD_BASE_URL` matches the session backend.
-- For token-based agent auth, check `IMPLELOAD_AGENT_TOKEN` and exactly one actor flag.
-
-## Examples
-
-Create an activity as an agent:
-
-```bash
-IMPLELOAD_AGENT_TOKEN=... impleload \
-  --actor-email implementer@sytex.io \
-  --output json \
-  activities create \
-  --client-id 1 \
-  --implementer-id 2 \
-  --label "Configuracion inicial" \
-  --load-hours 4 \
-  --scope-hours 10
-```
-
-Record work performed on a specific date:
-
-```bash
-impleload --output json worklogs create \
-  --activity-id 42 \
-  --work-date 2026-04-21 \
-  --hours 2 \
-  --description-md "Configuracion y validacion con cliente"
-```
+For deletes or copy-then-delete migrations, require explicit approval. If a command fails, report its status/code/message and do not retry blindly; first check authentication, backend, actor, ids, and business constraints.

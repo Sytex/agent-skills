@@ -1,4 +1,4 @@
 interface:
   display_name: "Impleload"
-  short_description: "Operate Impleload via CLI"
-  default_prompt: "Use $impleload to choose and run the correct Impleload CLI command for activities, worklogs, or authentication."
+  short_description: "Plan activities and record dated worklogs"
+  default_prompt: "Use $impleload to interpret my request and operate the correct activity or worklog through the Impleload CLI."

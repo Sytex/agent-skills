@@ -1,8 +1,8 @@
 {
   "name": "impleload",
   "title": "Impleload",
-  "description": "Operate Impleload implementation workload data from the CLI.",
-  "version": "1.0.0",
+  "description": "Interpret and operate Impleload activities and dated worklogs from the CLI.",
+  "version": "1.1.0",
   "setup_instructions": "Configure IMPLELOAD_AGENT_TOKEN only when the agent should use token-based agent auth. OAuth is also supported by running `impleload auth login` before asking the agent to make changes.",
   "dependencies": [
     {
