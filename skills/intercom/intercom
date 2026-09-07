@@ -77,31 +77,44 @@ cmd_status() {
     echo "Intercom Auth Status"
     echo "===================="
 
-    [[ -z "$INTERCOM_CLIENT_ID" ]] && echo "Not configured. Use the installer to set up." && exit 0
+    # The access token is what every other command actually needs (ensure_auth).
+    # INTERCOM_CLIENT_ID only exists when the skill was set up through the OAuth
+    # flow, so gating on it reported a perfectly working token-authenticated
+    # install as "Not configured".
+    if [[ -z "$INTERCOM_ACCESS_TOKEN" ]]; then
+        echo "Status: Not authenticated. Use the installer to set up."
+        exit 1
+    fi
 
-    echo "Client ID: ${INTERCOM_CLIENT_ID:0:8}..."
+    [[ -n "$INTERCOM_CLIENT_ID" ]] && echo "Client ID: ${INTERCOM_CLIENT_ID:0:8}..."
 
-    [[ -z "$INTERCOM_ACCESS_TOKEN" ]] && echo "Status: Not authenticated" && exit 0
-
-    # Test the connection
+    # Test the connection. `app` is an object, so it has to be read in one pass:
+    # piping it through json_value emitted a Python dict repr that the second
+    # parse always choked on, which sent every call to the fallback below.
     local response
     response=$(api_get "/me")
 
     local app_name
-    app_name=$(echo "$response" | json_value "app" | python3 -c "import json,sys; data=json.load(sys.stdin) if sys.stdin.read().strip() else {}; print(data.get('name', ''))" 2>/dev/null)
+    app_name=$(echo "$response" | python3 -c "
+import json, sys
+raw = sys.stdin.read().strip()
+data = json.loads(raw) if raw else {}
+app = data.get('app') or {}
+print(app.get('name', ''))
+" 2>/dev/null)
 
     if [[ -n "$app_name" ]]; then
         echo "Status: Connected"
         echo "App: $app_name"
-    else
-        local error
-        error=$(echo "$response" | json_value "type")
-        if [[ "$error" == "error.list" ]]; then
-            echo "Status: Error - Invalid token"
-        else
-            echo "Status: Connected"
-        fi
+        return
     fi
+
+    # No app on /me means the token did not work. Reporting "Connected" here —
+    # as this used to — is the failure a status command exists to catch.
+    echo "Status: Error - /me returned no app (token rejected or malformed reply)"
+    echo "$response" | head -c 300
+    echo
+    exit 1
 }
 
 cmd_me() {
