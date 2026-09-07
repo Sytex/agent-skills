@@ -84,28 +84,48 @@ fi
 API_BASE="${SENTRY_BASE_URL:-https://sentry.io}/api/0"
 
 # HTTP helpers
+#
+# An HTTP error is reported on stderr and exits non-zero. Without this the
+# error body ("you do not have permission", "endpoint not found") is printed
+# to stdout and the command still succeeds, so a caller — a health check, or
+# an agent reading the output — cannot tell a failure from an empty result.
+api_request() {
+    local method="$1"
+    local endpoint="$2"
+    local data="${3:-}"
+
+    local body
+    body=$(mktemp)
+    local args=(-s -o "$body" -w "%{http_code}" -X "$method" "${API_BASE}${endpoint}"
+        -H "Authorization: Bearer $SENTRY_TOKEN"
+        -H "Accept: application/json")
+    [[ -n "$data" ]] && args+=(-H "Content-Type: application/json" -d "$data")
+
+    local status
+    status=$(curl "${args[@]}")
+
+    if [[ "$status" -ge 400 ]]; then
+        echo "Error: Sentry returned HTTP $status for $method $endpoint" >&2
+        cat "$body" >&2
+        echo >&2
+        rm -f "$body"
+        exit 1
+    fi
+
+    cat "$body"
+    rm -f "$body"
+}
+
 api_get() {
-    local endpoint="$1"
-    curl -s -X GET "${API_BASE}${endpoint}" \
-        -H "Authorization: Bearer $SENTRY_TOKEN" \
-        -H "Accept: application/json"
+    api_request GET "$1"
 }
 
 api_put() {
-    local endpoint="$1"
-    local data="$2"
-    curl -s -X PUT "${API_BASE}${endpoint}" \
-        -H "Authorization: Bearer $SENTRY_TOKEN" \
-        -H "Accept: application/json" \
-        -H "Content-Type: application/json" \
-        -d "$data"
+    api_request PUT "$1" "$2"
 }
 
 api_delete() {
-    local endpoint="$1"
-    curl -s -X DELETE "${API_BASE}${endpoint}" \
-        -H "Authorization: Bearer $SENTRY_TOKEN" \
-        -H "Accept: application/json"
+    api_request DELETE "$1"
 }
 
 url_encode() {
@@ -142,7 +162,7 @@ cmd_orgs() {
 # === PROJECTS ===
 
 cmd_projects() {
-    api_get "/projects/"
+    api_get "/organizations/${ORG}/projects/"
 }
 
 cmd_project() {
@@ -258,21 +278,37 @@ cmd_assign() {
 
 # === STATS ===
 
+# stats_v2 requires a `field`; the pre-v2 `stat=received|rejected` parameter it
+# used to be called with is rejected outright ("At least one field is required").
+# --stat is kept as an alias so existing callers keep working: `received` is
+# every outcome, `rejected` the ones Sentry dropped.
 cmd_stats() {
-    local stat="received"
+    local field="sum(quantity)"
+    local category="error"
+    local outcome=""
     local period="24h"
     local project=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --stat) stat="$2"; shift 2 ;;
+            --stat)
+                case "$2" in
+                    received) outcome="" ;;
+                    rejected) outcome="rate_limited" ;;
+                    *) outcome="$2" ;;
+                esac
+                shift 2 ;;
+            --outcome) outcome="$2"; shift 2 ;;
+            --category) category="$2"; shift 2 ;;
+            --field) field="$2"; shift 2 ;;
             --period) period="$2"; shift 2 ;;
             --project) project="$2"; shift 2 ;;
             *) shift ;;
         esac
     done
 
-    local query="stat=${stat}&statsPeriod=${period}"
+    local query="field=$(url_encode "$field")&statsPeriod=${period}&category=${category}"
+    [[ -n "$outcome" ]] && query="${query}&outcome=${outcome}"
     [[ -n "$project" ]] && query="${query}&project=${project}"
 
     api_get "/organizations/${ORG}/stats_v2/?${query}"
@@ -326,7 +362,9 @@ show_help() {
     echo ""
     echo "STATS:"
     echo "  stats [flags]               Get organization stats"
-    echo "    --stat <type>             received, rejected, blacklisted"
+    echo "    --category <name>         error (default), transaction, attachment"
+    echo "    --outcome <name>          accepted, filtered, rate_limited, invalid"
+    echo "    --stat <type>             alias: received (all), rejected"
     echo "    --period <period>         24h, 7d, 30d"
     echo "    --project <id>            Filter by project ID"
     echo ""
