@@ -68,7 +68,7 @@ All commands: `~/.claude/skills/sentry/sentry [--org <slug>] <command>`
 ### Stats
 | Command | Description |
 |---------|-------------|
-| `stats [--stat type] [--period 24h]` | Org stats (received, rejected) |
+| `stats [flags]` | Org stats. `--category` (error/transaction/attachment), `--outcome` (accepted/filtered/rate_limited/invalid), `--period 24h`, `--project <id>` |
 
 ## Search Query Syntax
 
