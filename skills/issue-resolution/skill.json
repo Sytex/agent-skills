@@ -1,8 +1,10 @@
 {
   "name": "issue-resolution",
   "title": "Issue Resolution",
-  "description": "End-to-end workflow for resolving user-reported problems/bugs",
+  "description": "Bug resolution exclusively for tasks that modify code in the Sytex repository or its worktrees",
   "version": "1.0.0",
-  "files": ["SKILL.md"],
+  "files": [
+    "SKILL.md"
+  ],
   "fields": []
 }

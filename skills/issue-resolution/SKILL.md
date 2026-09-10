@@ -1,11 +1,23 @@
 ---
 name: issue-resolution
-description: End-to-end workflow for resolving/fixing problems/bugs. Use when someone reports an issue, error, bug, or problem - whether it comes with a Sentry link, Linear issue, both, or neither.
+description: Resolve bugs only when the task involves modifying code in the Sytex repository or one of its worktrees. Never apply to other repositories, read-only investigations, support requests, or operational tasks that do not change Sytex code. A bug report, Sentry link, or Linear issue alone does not activate this skill.
 ---
 
-# Issue Resolution Workflow (MANDATORY)
+# Sytex Code Issue Resolution
 
-YOU MUST follow this workflow exactly. Do NOT skip steps. Do NOT deviate.
+## Applicability gate (check before any workflow step)
+
+Apply this skill ONLY when BOTH conditions hold:
+- The target code belongs to the Sytex repository, including its worktrees.
+- The requested task involves changing that code to resolve a bug or issue.
+
+Determine the target from the user's request and repository context. Working in another directory does not exclude an explicitly requested Sytex code fix, and being in a Sytex checkout does not activate this skill for unrelated work.
+
+Do not apply this workflow to other repositories (including agent-skills, Impleload, Omarchy, or ovh_vps), desktop/system problems, support, read-only diagnosis or review, data repairs, or production operations that do not change Sytex code. Mentioning Sytex, Sentry, Linear, an error, or a bug is not sufficient. Editing this skill is not a Sytex code change.
+
+If either condition is absent, stop applying this skill and continue the user's task without imposing its approval gates, Linear issues, worktrees, commits, or PRs. Do not expand an investigation into a code fix merely to activate this workflow. If the user later requests a Sytex code fix, reassess applicability then.
+
+The workflow below applies only after this gate passes, subject to the user's explicit scope and existing authorization.
 
 ---
 
