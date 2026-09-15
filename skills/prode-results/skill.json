@@ -1,0 +1,25 @@
+{
+  "name": "prode-results",
+  "title": "Prode Results Sync",
+  "description": "Sync WC2026 match results from football-data.org into the prode Firestore, with dry-run and explicit confirmation before writing.",
+  "version": "1.0.0",
+  "setup_instructions": "Set FOOTBALL_DATA_API_TOKEN and GOOGLE_SERVICE_ACCOUNT_FILE (or GOOGLE_SERVICE_ACCOUNT_JSON) in ~/.agent-skills/prode-results/.env",
+  "fields": [
+    {
+      "name": "FOOTBALL_DATA_API_TOKEN",
+      "label": "football-data.org API token",
+      "type": "password",
+      "required": true,
+      "help": "Free token from https://www.football-data.org/client/register"
+    },
+    {
+      "name": "GOOGLE_SERVICE_ACCOUNT_FILE",
+      "label": "Firebase service account JSON path",
+      "type": "text",
+      "required": true,
+      "help": "Path to a service account JSON with Firestore access to the prode project"
+    }
+  ],
+  "test_command": "dry-run",
+  "files": ["prode-results", "SKILL.md", "README.md"]
+}
