@@ -84,6 +84,12 @@ explain_status() {
         404)
             echo "Error: Not found (404). Kadmos does not know that job id." >&2
             ;;
+        409)
+            # The server names the job's actual status and what to do instead, so
+            # the hint here must not contradict it by guessing at one.
+            echo "Error: Kadmos refused the request (409) — only a running job can wrap up." >&2
+            [[ -n "$body" ]] && printf '%s' "$body" | python3 -c "$PY_ERROR" >&2
+            ;;
         503)
             echo "Error: Background jobs are not enabled on this Kadmos instance (503)." >&2
             ;;
@@ -114,6 +120,19 @@ api_request() {
 # === Python helpers ===
 # Every program is passed with -c so the JSON can arrive on stdin (a heredoc would
 # occupy stdin itself) or, when small, as an argument.
+
+PY_ERROR=$(cat <<'PY'
+import json, sys
+
+raw = sys.stdin.read()
+try:
+    message = (json.loads(raw) or {}).get("error")
+except ValueError:
+    message = None
+
+print(message or raw.strip())
+PY
+)
 
 PY_RESOLVE_ID=$(cat <<'PY'
 import json, sys
@@ -244,9 +263,14 @@ job = json.load(sys.stdin) or {}
 job = job.get("job") or job
 status = str(job.get("status") or "?")
 
+# A wrapped-up job lands abandoned on purpose — it stopped because it was asked to.
+stopped = status == "abandoned" and job.get("error") == "stopped by user"
+shown = "stopped (resumable)" if stopped else status
+
 rows = [
     ("job", job.get("id")),
-    ("status", status),
+    ("status", shown),
+    ("wrap-up", "requested" if job.get("wrapup_requested") else None),
     ("phase", job.get("phase")),
     ("progress", job.get("progress_text")),
     ("thread", job.get("url")),
@@ -306,6 +330,10 @@ def minutes(seconds):
 job = json.load(sys.stdin) or {}
 job = job.get("job") or job
 status = str(job.get("status") or "?")
+
+if status == "abandoned" and job.get("error") == "stopped by user":
+    status = "stopped (resumable)"
+
 bits = [status]
 
 phase = job.get("phase")
@@ -327,8 +355,12 @@ import json, sys
 
 job = json.load(sys.stdin) or {}
 job = job.get("job") or job
+status = str(job.get("status") or "?")
 
-print("Job %s finished: %s" % (str(job.get("id") or "")[:8], job.get("status")))
+if status == "abandoned" and job.get("error") == "stopped by user":
+    status = "stopped (resumable)"
+
+print("Job %s finished: %s" % (str(job.get("id") or "")[:8], status))
 
 for label, key in (("deliverable", "deliverable"), ("thread", "url"), ("error", "error")):
     value = job.get(key)
@@ -520,7 +552,14 @@ cmd_watch() {
             completed|failed|abandoned|resumed)
                 echo ""
                 printf '%s' "$HTTP_BODY" | python3 -c "$PY_TERMINAL"
-                if [[ "$status" == "failed" || "$status" == "abandoned" ]]; then
+
+                # A wrap-up lands the job abandoned, but it stopped because it was
+                # asked to — that is a success, not a failure.
+                local job_error stopped=""
+                job_error="$(printf '%s' "$HTTP_BODY" | python3 -c "$PY_FIELD" error)"
+                [[ "$status" == "abandoned" && "$job_error" == "stopped by user" ]] && stopped="yes"
+
+                if [[ -z "$stopped" && ( "$status" == "failed" || "$status" == "abandoned" ) ]]; then
                     exit 1
                 fi
                 exit 0
@@ -561,6 +600,19 @@ cmd_cancel() {
     api_request POST "/api/jobs/${job_id}/cancel" >/dev/null
     echo "Cancellation requested for job ${job_id:0:8}."
     echo "A running job settles on its next check; a queued one is killed outright."
+}
+
+# === WRAPUP (stop, but keep and hand over what the job has) ===
+
+cmd_wrapup() {
+    local job_id
+    job_id="$(resolve_job_id "$1")" || exit 1
+
+    api_request POST "/api/jobs/${job_id}/wrapup" >/dev/null
+    echo "Wrap-up requested for job ${job_id:0:8}."
+    echo "It stops after committing and pushing what it has, then posts where it got to."
+    echo ""
+    echo "Follow it:  kadmos-handoff watch ${job_id:0:8}"
 }
 
 # === TEST (connectivity + auth + scope) ===
@@ -634,7 +686,9 @@ COMMANDS:
   status <id>                   One job's full state (plus its result when finished)
   watch <id> [--interval <s>]   Poll and print only what changed; exits when terminal
   thread <id>                   The Discord thread transcript (what Kadmos and people said)
-  cancel <id>                   Request cancellation
+  wrapup <id>                   Stop it, but keep the work: one last turn commits and
+                                pushes what it has and posts where it got to
+  cancel <id>                   Request cancellation — a hard kill, nothing is saved
   test                          Connectivity + auth + scope check
   help                          This text
 
@@ -646,6 +700,9 @@ JOB IDS:
 STATUSES:
   queued · running · completed · failed · abandoned · resumed
   watch exits 0 on completed/resumed and non-zero on failed/abandoned.
+  A wrapped-up job lands abandoned carrying "stopped by user": it shows as
+  'stopped (resumable)' and watch exits 0 for it, since stopping was asked for.
+  A !resume reply in its Discord thread continues it from the same session.
 
 EXAMPLES:
   kadmos-handoff test
@@ -656,6 +713,7 @@ EXAMPLES:
   kadmos-handoff list
   kadmos-handoff watch 1a2b3c4d --interval 60
   kadmos-handoff thread 1a2b3c4d
+  kadmos-handoff wrapup 1a2b3c4d
   kadmos-handoff cancel 1a2b3c4d
 
 CONFIG (~/.agent-skills/kadmos-handoff/.env):
@@ -679,6 +737,7 @@ case "$1" in
     status) shift; load_config; cmd_status "$@" ;;
     watch) shift; load_config; cmd_watch "$@" ;;
     thread) shift; load_config; cmd_thread "$@" ;;
+    wrapup) shift; load_config; cmd_wrapup "$@" ;;
     cancel) shift; load_config; cmd_cancel "$@" ;;
     test) load_config; cmd_test ;;
     *) echo "Error: unknown command: $1" >&2; echo "" >&2; show_help >&2; exit 1 ;;

@@ -63,7 +63,10 @@ bash ~/.claude/skills/kadmos-handoff/kadmos-handoff watch 1a2b3c4d --interval 60
 # The Discord thread itself — what Kadmos and the humans said
 bash ~/.claude/skills/kadmos-handoff/kadmos-handoff thread 1a2b3c4d
 
-# Stop it
+# Stop it, but keep the work: it commits, pushes and says where it got to
+bash ~/.claude/skills/kadmos-handoff/kadmos-handoff wrapup 1a2b3c4d
+
+# Stop it dead — nothing committed, nothing saved
 bash ~/.claude/skills/kadmos-handoff/kadmos-handoff cancel 1a2b3c4d
 ```
 
@@ -76,7 +79,8 @@ bash ~/.claude/skills/kadmos-handoff/kadmos-handoff cancel 1a2b3c4d
 | `status <id>` | One job's full state; includes the result once terminal |
 | `watch <id> [--interval <s>]` | Poll and print only what changed; exits when the job settles |
 | `thread <id>` | The job's Discord thread transcript |
-| `cancel <id>` | Request cancellation |
+| `wrapup <id>` | Stop it after one last turn that commits and pushes what it has, and posts where it got to |
+| `cancel <id>` | Request cancellation — a hard kill: nothing committed, nothing saved |
 | `test` | Connectivity + auth + scope check |
 
 `create` also takes `--folder <name>` (working directory on the box),
@@ -112,8 +116,10 @@ shown on the thread's status card. A short prefix only resolves against **active
 
 `queued` · `running` · `completed` · `failed` · `abandoned` · `resumed`.
 `watch` exits 0 on `completed`/`resumed` and non-zero on `failed`/`abandoned`.
-An `abandoned` job ran out of budget or was interrupted — replying `!resume` in its
-Discord thread continues it.
+An `abandoned` job ran out of budget, was interrupted, or was stopped with `wrapup` —
+replying `!resume` in its Discord thread continues it. A wrapped-up job carries
+`stopped by user` and is shown as `stopped (resumable)`; `watch` exits 0 for it,
+since stopping was asked for.
 
 ## Notes
 

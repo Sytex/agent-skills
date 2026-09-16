@@ -221,7 +221,15 @@ Then tell the user, plainly:
 | "what is kadmos doing?" / "qué está haciendo?" | `bash ./kadmos-handoff status <id>`, then `thread <id>` for the detail |
 | "what did it say?" / "qué dijo en el thread?" | `bash ./kadmos-handoff thread <id>` |
 | "what is running?" / "qué hay corriendo?" | `bash ./kadmos-handoff list` |
-| "cancel it" / "cancelalo" | `bash ./kadmos-handoff cancel <id>` |
+| "stop it but keep what it has" / "frenalo y que entregue hasta donde llegó" / "pará y decime dónde quedó" | `bash ./kadmos-handoff wrapup <id>` |
+| "cancel it" / "cancelalo" | `bash ./kadmos-handoff cancel <id>` — a **hard kill**: nothing committed, nothing saved. `wrapup` is the one that hands the work over |
+
+**Wrap-up** stops the current turn and gives the job one last bounded turn in the
+same session: it commits what is uncommitted as a `wip:` commit, pushes the branch,
+and posts where it got to — what is done, what is left, where the work lives, and
+any notes. The job then lands `abandoned` carrying `stopped by user` (shown as
+`stopped (resumable)`), and a **`!resume`** reply in its Discord thread continues it
+from that same session, so nothing is lost by stopping.
 
 - **Ids**: every command takes the full 32-character id or the 8-character short
   form. A short prefix only resolves against **active** jobs — for a job that already
@@ -233,8 +241,9 @@ Then tell the user, plainly:
   settles (non-zero on `failed`/`abandoned`). It is a foreground poll — use it when
   the user asked to be told, not as a default.
 - Statuses: `queued` · `running` · `completed` · `failed` · `abandoned` · `resumed`.
-  **`abandoned`** means it ran out of budget or was interrupted and is resumable —
-  a reply of `!resume` in its Discord thread continues it.
+  **`abandoned`** means it ran out of budget, was interrupted, or was stopped with
+  `wrapup` — in every case it is resumable, and a reply of `!resume` in its Discord
+  thread continues it.
 
 ## Reporting back
 
