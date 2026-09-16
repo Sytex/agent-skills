@@ -119,9 +119,16 @@ Motivo:
 Al validar, aceptar las tres variantes, pero al diseñar o corregir templates nuevos preferir la clave humana.
 
 ### 3) Etiquetas de imagen (photos)
-Patrón canónico:
-- `answers.<key>.photos.<n>`
+Patrón canónico (el hyperlink de la imagen, **con llaves**):
+- `{{answers.<key>.photos.<n>}}`
 - `<n>` es base 0: `photos.0`, `photos.1`, `photos.2`, ...
+
+Las llaves son obligatorias. El exportador busca `{{ ... }}` dentro del `Target` del hyperlink (después de URL-decode); un `Target` sin llaves (`answers.5_3.photos.0`) no se reconoce y la imagen placeholder se **borra** del export sin dejar nada en su lugar. Al escribir un `Target`, escribirlo siempre con llaves; al validar, un `Target` sin llaves es `format_error`.
+
+Firmas (entry_type 12):
+- se exportan igual que una foto: imagen placeholder con hyperlink `{{answers.<key>.photos.0}}`
+- siempre índice `0` (una firma es una sola imagen)
+- no usar `.value` en una celda: devuelve el base64 como texto, no la imagen
 
 Dónde aparecen:
 - `drawing*.xml.rels` (más común)
@@ -324,6 +331,7 @@ Semántica:
 - referencias inválidas de `answers`: `0`
 - expresiones no soportadas: `0`
 - bases inválidas de `photos`: `0`
+- `Target` de `photos` sin llaves `{{ }}`: `0`
 - revisión de bloques críticos por posición `(row,col)`
 - confirmar que no hubo cambios accidentales en XML no relacionado
 
@@ -332,7 +340,7 @@ Usar este pipeline como estándar en cualquier template:
 
 1. Construir catálogo del Excel:
 - `placeholders`: contenido de `{{ ... }}`
-- `photos`: `answers.<key>.photos.<n>` en `xml` y `rels`
+- `photos`: `answers.<key>.photos.<n>` en `xml` y `rels`, registrando si el `Target` lleva llaves `{{ }}` (sin llaves => `format_error`)
 - incluir contexto: `file`, `sheet/drawing`, `rId`, `row/col`
 
 2. Construir catálogo válido desde JSON / form content:
@@ -370,7 +378,7 @@ Usar este pipeline como estándar en cualquier template:
 - confirmar que archivos no objetivo no cambiaron
 
 ## Reglas específicas de índices de fotos
-- `answers.<key>.photos.<n>` usa índice base 0
+- `{{answers.<key>.photos.<n>}}` usa índice base 0 y siempre va entre llaves
 - no asumir continuidad (`0,1,3` puede ser válido)
 - validar la base `<key>` contra el catálogo de answers
 - el índice `<n>` depende de disponibilidad real de fotos en runtime
@@ -433,6 +441,9 @@ rg -o -N "\{\{[^}]+\}\}" /tmp/xlsx/xl -g '*.xml'
 
 # Extraer referencias photos
 rg -o -N "answers\.[A-Za-z0-9_-]+\.photos\.[0-9]+" /tmp/xlsx/xl -g '*.xml' -g '*.rels'
+
+# Detectar Targets de photos SIN llaves (debe devolver vacío)
+rg -N 'Target="answers\.[A-Za-z0-9_-]+\.photos\.[0-9]+"' /tmp/xlsx/xl -g '*.rels'
 
 # Detectar uso de funciones soportadas
 rg -o -N "contains\([^)]*\)|isEqual\([^)]*\)|left\([^)]*\)|right\([^)]*\)|date_format\([^)]*\)" /tmp/xlsx/xl -g '*.xml'
