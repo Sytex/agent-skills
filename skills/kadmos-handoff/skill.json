@@ -25,9 +25,9 @@
       "name": "channel_id",
       "label": "Handoff Channel ID",
       "type": "text",
-      "default": "788211006203625483",
+      "default": "1449164467173724351",
       "env_var": "KADMOS_HANDOFF_CHANNEL_ID",
-      "help": "The Discord channel where handoff threads are opened. Default is the team's development channel."
+      "help": "The Discord channel where handoff threads are opened. Default is the team's `#agent-playground` channel."
     }
   ],
   "test_command": "test",

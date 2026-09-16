@@ -15,7 +15,7 @@ CONFIG_FILE="$HOME/.agent-skills/$SKILL_NAME/.env"
 MEMORY_CONFIG_FILE="$HOME/.agent-skills/kadmos-memory/.env"
 
 DEFAULT_BASE_URL="http://10.31.149.63:7832"
-DEFAULT_CHANNEL_ID="788211006203625483"
+DEFAULT_CHANNEL_ID="1449164467173724351"
 
 HTTP_STATUS=""
 HTTP_BODY=""
@@ -679,7 +679,7 @@ COMMANDS:
     --done-check '<shell line>' Read-only shell line deciding when the job is DONE:
                                 exit 0 = the deliverable exists, and its last stdout
                                 line is what the job reports as delivered
-    --channel-id <id>           Discord channel (default: the team's development channel)
+    --channel-id <id>           Discord channel (default: the team's `#agent-playground` channel)
     --provider <p> / --model <m>  Override the box's default agent
 
   list                          Queued + running jobs, one line each
@@ -719,7 +719,7 @@ EXAMPLES:
 CONFIG (~/.agent-skills/kadmos-handoff/.env):
   KADMOS_HANDOFF_TOKEN        Your personal token (falls back to KADMOS_MEMORY_TOKEN)
   KADMOS_HANDOFF_BASE_URL     Default http://10.31.149.63:7832
-  KADMOS_HANDOFF_CHANNEL_ID   Default 788211006203625483
+  KADMOS_HANDOFF_CHANNEL_ID   Default 1449164467173724351
 EOF
 }
 

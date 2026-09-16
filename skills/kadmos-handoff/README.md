@@ -31,7 +31,7 @@ You'll be asked for:
   kadmos-memory token.
 - **Kadmos Base URL** — defaults to `http://10.31.149.63:7832` (`KADMOS_HANDOFF_BASE_URL`).
 - **Handoff Channel ID** — the Discord channel where handoff threads are opened;
-  defaults to the team's `#development` channel (`KADMOS_HANDOFF_CHANNEL_ID`).
+  defaults to the team's `#agent-playground` channel (`KADMOS_HANDOFF_CHANNEL_ID`).
 
 Test it:
 
@@ -137,7 +137,7 @@ Credentials live in `~/.agent-skills/kadmos-handoff/.env`:
 ```
 KADMOS_HANDOFF_TOKEN="..."                        # optional — falls back to KADMOS_MEMORY_TOKEN
 KADMOS_HANDOFF_BASE_URL="http://10.31.149.63:7832"
-KADMOS_HANDOFF_CHANNEL_ID="788211006203625483"
+KADMOS_HANDOFF_CHANNEL_ID="1449164467173724351"
 ```
 
 Run the installer to set or update them.

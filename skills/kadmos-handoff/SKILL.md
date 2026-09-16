@@ -201,7 +201,7 @@ bash ./kadmos-handoff create \
 Add `--folder <name>` only when the work is confined to a directory that **already
 exists on the box** — a handoff that has to run `issue-setup` must start at the
 workspace root, which is the default. `--channel-id` overrides the destination
-channel; the default is the team's development channel.
+channel; the default is the team's `#agent-playground` channel.
 
 Then tell the user, plainly:
 
