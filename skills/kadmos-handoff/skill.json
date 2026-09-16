@@ -1,0 +1,35 @@
+{
+  "name": "kadmos-handoff",
+  "title": "Kadmos Handoff",
+  "description": "Hand the work in progress over to Kadmos — the team's always-on box — so it keeps running after your machine is off, and follow the job from your terminal.",
+  "version": "1.0.0",
+  "setup_instructions": "Get a personal token by typing /token to the Kadmos bot in Discord (it DMs it to you). If you already installed the kadmos-memory skill, leave the token empty — this skill reuses it. The API is only reachable over the Sytex VPN.",
+  "fields": [
+    {
+      "name": "token",
+      "label": "Kadmos Token",
+      "type": "password",
+      "required": false,
+      "env_var": "KADMOS_HANDOFF_TOKEN",
+      "help": "Optional. Type /token to the Kadmos bot in Discord for a personal bearer token. Leave empty to reuse the kadmos-memory skill's token (one /token carries every scope)."
+    },
+    {
+      "name": "base_url",
+      "label": "Kadmos Base URL",
+      "type": "text",
+      "default": "http://10.31.149.63:7832",
+      "env_var": "KADMOS_HANDOFF_BASE_URL",
+      "help": "Kadmos API base URL. Default is the production address, reachable on the Sytex VPN only."
+    },
+    {
+      "name": "channel_id",
+      "label": "Handoff Channel ID",
+      "type": "text",
+      "default": "788211006203625483",
+      "env_var": "KADMOS_HANDOFF_CHANNEL_ID",
+      "help": "The Discord channel where handoff threads are opened. Default is the team's development channel."
+    }
+  ],
+  "test_command": "test",
+  "files": ["kadmos-handoff", "SKILL.md", "README.md"]
+}

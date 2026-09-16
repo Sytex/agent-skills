@@ -1,0 +1,685 @@
+#!/bin/bash
+# Kadmos Handoff CLI — hand the work you are doing locally over to Kadmos, which
+# keeps running it on the box after your machine is off, and follow it from here.
+#
+# Talks to the Kadmos background-jobs HTTP API over the Sytex VPN with a personal
+# token. The token comes from ~/.agent-skills/kadmos-handoff/.env and — so a
+# teammate who already set up the kadmos-memory (recall) skill needs zero extra
+# config — falls back to that skill's token and base URL.
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_NAME="$(basename "$SCRIPT_DIR")"
+CONFIG_FILE="$HOME/.agent-skills/$SKILL_NAME/.env"
+MEMORY_CONFIG_FILE="$HOME/.agent-skills/kadmos-memory/.env"
+
+DEFAULT_BASE_URL="http://10.31.149.63:7832"
+DEFAULT_CHANNEL_ID="788211006203625483"
+
+HTTP_STATUS=""
+HTTP_BODY=""
+
+# Load config and validate the token. Skipped for help, which needs no credentials.
+load_config() {
+    if [[ -f "$CONFIG_FILE" ]]; then
+        source "$CONFIG_FILE" 2>/dev/null
+    fi
+
+    # One /token in Discord mints one token carrying every scope, so reuse the
+    # recall skill's when this skill has none of its own.
+    if [[ -z "$KADMOS_HANDOFF_TOKEN" && -z "$KADMOS_MEMORY_TOKEN" && -f "$MEMORY_CONFIG_FILE" ]]; then
+        source "$MEMORY_CONFIG_FILE" 2>/dev/null
+    fi
+
+    TOKEN="${KADMOS_HANDOFF_TOKEN:-${KADMOS_MEMORY_TOKEN:-}}"
+    BASE_URL="${KADMOS_HANDOFF_BASE_URL:-${KADMOS_MEMORY_BASE_URL:-$DEFAULT_BASE_URL}}"
+    CHANNEL_ID="${KADMOS_HANDOFF_CHANNEL_ID:-$DEFAULT_CHANNEL_ID}"
+
+    if [[ -z "$TOKEN" ]]; then
+        echo "Error: No token configured. Set KADMOS_HANDOFF_TOKEN or run the installer." >&2
+        echo "Get a personal token by typing /token to the Kadmos bot in Discord (it DMs it to you)." >&2
+        exit 1
+    fi
+}
+
+# Low-level HTTP call. Sets HTTP_STATUS / HTTP_BODY and always returns 0, so a
+# caller (watch) can survive a transient failure instead of dying on it.
+# Must be called directly — inside $( ) the globals would be lost to the subshell.
+http_call() {
+    local method="$1" path="$2" payload="${3:-}"
+    local response
+    local -a args=(-s -w $'\n%{http_code}' --connect-timeout 10 -X "$method"
+        -H "Authorization: Bearer $TOKEN"
+        -H "Accept: application/json")
+
+    if [[ -n "$payload" ]]; then
+        args+=(-H "Content-Type: application/json" -d "$payload")
+    fi
+
+    response=$(curl "${args[@]}" "${BASE_URL}${path}" 2>/dev/null) || response=$'\n000'
+
+    HTTP_STATUS="${response##*$'\n'}"
+    HTTP_BODY="${response%$'\n'*}"
+}
+
+# Friendly explanation of the status the API answered with.
+explain_status() {
+    local status="$1" body="$2"
+
+    case "$status" in
+        000)
+            echo "Error: Could not reach Kadmos at ${BASE_URL}." >&2
+            echo "Are you on the Sytex VPN? The Kadmos API is only reachable over the VPN." >&2
+            ;;
+        401)
+            echo "Error: Token rejected (401). Your token is missing, invalid or was revoked." >&2
+            echo "Get a fresh one with /token in Discord, then run the installer to save it." >&2
+            ;;
+        403)
+            echo "Error: Forbidden (403). Your token lacks the jobs scope for this request," >&2
+            echo "or the job belongs to someone else. Run /token again in Discord for a fresh" >&2
+            echo "token carrying the scope, then save it with the installer." >&2
+            ;;
+        404)
+            echo "Error: Not found (404). Kadmos does not know that job id." >&2
+            ;;
+        503)
+            echo "Error: Background jobs are not enabled on this Kadmos instance (503)." >&2
+            ;;
+        400)
+            echo "Error: Kadmos rejected the request (400)." >&2
+            [[ -n "$body" ]] && echo "$body" >&2
+            ;;
+        *)
+            echo "Error: Kadmos returned HTTP $status." >&2
+            [[ -n "$body" ]] && echo "$body" >&2
+            ;;
+    esac
+}
+
+# HTTP call that prints the body on success and dies with a friendly message otherwise.
+api_request() {
+    http_call "$@"
+
+    if [[ "$HTTP_STATUS" == "200" || "$HTTP_STATUS" == "201" ]]; then
+        printf '%s\n' "$HTTP_BODY"
+        return 0
+    fi
+
+    explain_status "$HTTP_STATUS" "$HTTP_BODY"
+    exit 1
+}
+
+# === Python helpers ===
+# Every program is passed with -c so the JSON can arrive on stdin (a heredoc would
+# occupy stdin itself) or, when small, as an argument.
+
+PY_RESOLVE_ID=$(cat <<'PY'
+import json, sys
+
+prefix = sys.argv[1]
+jobs = (json.loads(sys.argv[2]) or {}).get("jobs") or []
+matches = [j for j in jobs if str(j.get("id") or "").startswith(prefix)]
+
+if len(matches) == 1:
+    print(matches[0]["id"])
+    raise SystemExit(0)
+
+if not matches:
+    sys.stderr.write(
+        "Error: no active job matches the id prefix '%s'.\n"
+        "Only queued/running jobs can be matched by a prefix — pass the full\n"
+        "32-character id for a job that already finished.\n" % prefix
+    )
+    raise SystemExit(1)
+
+sys.stderr.write("Error: the prefix '%s' matches %d jobs:\n" % (prefix, len(matches)))
+for job in matches:
+    sys.stderr.write("  %s  %s  %s\n" % (job["id"], job.get("status"), (job.get("prompt") or "")[:50]))
+sys.stderr.write("Use more characters of the id.\n")
+raise SystemExit(1)
+PY
+)
+
+PY_BUILD_PAYLOAD=$(cat <<'PY'
+import json, sys
+
+title, prompt, prompt_file, folder, done_check, channel_id, provider, model = sys.argv[1:9]
+
+if prompt_file:
+    with open(prompt_file, encoding="utf-8") as handle:
+        prompt = handle.read()
+
+prompt = prompt.strip()
+if not prompt:
+    sys.stderr.write("Error: the prompt is empty.\n")
+    raise SystemExit(1)
+
+body = {"prompt": prompt, "channel_id": str(channel_id), "title": title}
+for key, value in (
+    ("folder", folder),
+    ("done_check", done_check),
+    ("provider", provider),
+    ("model", model),
+):
+    if value:
+        body[key] = value
+
+print(json.dumps(body))
+PY
+)
+
+PY_CREATED=$(cat <<'PY'
+import json, sys
+
+data = json.load(sys.stdin) or {}
+job_id = str(data.get("job_id") or "")
+url = data.get("url")
+
+print("Handed off to Kadmos — the job is QUEUED (the supervisor claims it shortly).")
+print("  job id:  %s" % job_id)
+print("  short:   %s" % job_id[:8])
+print("  thread:  %s" % (url or "(no thread url returned — look in the Discord channel)"))
+print("  channel: %s" % data.get("channel_id"))
+print("")
+print("Follow it:  kadmos-handoff watch %s" % job_id[:8])
+PY
+)
+
+PY_LIST=$(cat <<'PY'
+import json, sys
+
+
+def minutes(seconds):
+    try:
+        return "%dm" % (int(seconds) // 60)
+    except (TypeError, ValueError):
+        return "-"
+
+
+data = json.load(sys.stdin) or {}
+jobs = data.get("jobs") or []
+
+if not jobs:
+    print("No queued or running jobs.")
+else:
+    for job in jobs:
+        status = str(job.get("status") or "?")
+        age = minutes(job.get("waited_seconds") if status == "queued" else job.get("elapsed_seconds"))
+        phase = str(job.get("phase") or job.get("progress_text") or "-")
+        prompt = " ".join(str(job.get("prompt") or "").split())
+        print("%-8s  %-9s  %5s  %-12s  %-22s  %s" % (
+            str(job.get("id") or "")[:8],
+            status,
+            age,
+            str(job.get("user_name") or "-")[:12],
+            phase[:22],
+            prompt[:60],
+        ))
+
+config = data.get("config") or {}
+if config:
+    print("")
+    print("-- max_concurrent=%s poll_interval=%ss per_turn_timeout=%ss" % (
+        config.get("max_concurrent"),
+        config.get("poll_interval"),
+        config.get("per_turn_timeout"),
+    ))
+PY
+)
+
+PY_STATUS=$(cat <<'PY'
+import json, sys
+
+
+def minutes(seconds):
+    try:
+        return "%dm" % (int(seconds) // 60)
+    except (TypeError, ValueError):
+        return "-"
+
+
+job = json.load(sys.stdin) or {}
+job = job.get("job") or job
+status = str(job.get("status") or "?")
+
+rows = [
+    ("job", job.get("id")),
+    ("status", status),
+    ("phase", job.get("phase")),
+    ("progress", job.get("progress_text")),
+    ("thread", job.get("url")),
+    ("user", job.get("user_name")),
+    ("directory", job.get("work_key")),
+    ("folder", job.get("folder")),
+    ("elapsed", minutes(job.get("elapsed_seconds"))),
+    ("queued for", minutes(job.get("waited_seconds"))),
+    ("remaining", minutes(job.get("remaining_seconds"))),
+    ("turns", job.get("turns")),
+    ("continuations", job.get("continuations")),
+    ("restarts", job.get("restarts")),
+    ("attempts", job.get("attempts")),
+    ("cost", "$%.2f" % float(job.get("cost_usd") or 0)),
+    ("delivered", job.get("delivered")),
+    ("done check", job.get("done_check")),
+    ("deliverable", job.get("deliverable")),
+    ("error", job.get("error")),
+    ("created", job.get("created_at")),
+    ("completed", job.get("completed_at")),
+]
+
+always = {"job", "status", "turns", "cost"}
+for label, value in rows:
+    if label not in always and value in (None, "", "-", 0):
+        continue
+    print("%-14s %s" % (label, value))
+
+result = job.get("result")
+if status in ("completed", "failed", "abandoned", "resumed") and result:
+    print("")
+    print("--- result ---")
+    print(result)
+PY
+)
+
+PY_SIGNATURE=$(cat <<'PY'
+import json, sys
+
+job = json.load(sys.stdin) or {}
+job = job.get("job") or job
+print("|".join(str(job.get(key) or "") for key in ("status", "phase", "progress_text")))
+PY
+)
+
+PY_TICK=$(cat <<'PY'
+import json, sys, time
+
+
+def minutes(seconds):
+    try:
+        return "%dm" % (int(seconds) // 60)
+    except (TypeError, ValueError):
+        return "-"
+
+
+job = json.load(sys.stdin) or {}
+job = job.get("job") or job
+status = str(job.get("status") or "?")
+bits = [status]
+
+phase = job.get("phase")
+if phase:
+    bits.append(str(phase))
+
+progress = job.get("progress_text")
+if progress:
+    bits.append(" ".join(str(progress).split())[:80])
+
+bits.append(minutes(job.get("waited_seconds") if status == "queued" else job.get("elapsed_seconds")))
+
+print("[%s] %s" % (time.strftime("%H:%M:%S"), " · ".join(bits)))
+PY
+)
+
+PY_TERMINAL=$(cat <<'PY'
+import json, sys
+
+job = json.load(sys.stdin) or {}
+job = job.get("job") or job
+
+print("Job %s finished: %s" % (str(job.get("id") or "")[:8], job.get("status")))
+
+for label, key in (("deliverable", "deliverable"), ("thread", "url"), ("error", "error")):
+    value = job.get(key)
+    if value:
+        print("  %s: %s" % (label, value))
+
+result = job.get("result")
+if result:
+    print("")
+    print("--- result ---")
+    print(result)
+PY
+)
+
+PY_FIELD=$(cat <<'PY'
+import json, sys
+
+job = json.load(sys.stdin) or {}
+job = job.get("job") or job
+print(job.get(sys.argv[1]) or "")
+PY
+)
+
+PY_TRANSCRIPT=$(cat <<'PY'
+import json, sys
+
+data = json.load(sys.stdin) or {}
+messages = data.get("messages") or []
+
+if not messages:
+    print("No messages captured for this thread yet.")
+    raise SystemExit(0)
+
+for message in messages:
+    author = message.get("author_name") or message.get("author_id") or "?"
+    created = str(message.get("created_at") or "")[:19].replace("T", " ")
+    content = (message.get("content") or "").strip() or "(no text)"
+    print("%s · %s" % (author, created))
+    for line in content.splitlines():
+        print("    %s" % line)
+    attachments = message.get("attachments")
+    if attachments:
+        print("    [attachments: %s]" % attachments)
+    print("")
+PY
+)
+
+# Resolve a possibly-shortened job id against the active jobs. A full 32-hex id
+# is used verbatim, so a job that already finished stays addressable.
+resolve_job_id() {
+    local given="$1"
+
+    if [[ -z "$given" ]]; then
+        echo "Error: a job id is required." >&2
+        exit 1
+    fi
+
+    if [[ "$given" =~ ^[0-9a-f]{32}$ ]]; then
+        printf '%s\n' "$given"
+        return 0
+    fi
+
+    local body
+    body="$(api_request GET /api/jobs)" || exit 1
+    python3 -c "$PY_RESOLVE_ID" "$given" "$body"
+}
+
+# === CREATE ===
+
+cmd_create() {
+    local title="" prompt="" prompt_file="" folder="" done_check=""
+    local channel_id="" provider="" model=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --title) title="$2"; shift 2 ;;
+            --prompt) prompt="$2"; shift 2 ;;
+            --prompt-file) prompt_file="$2"; shift 2 ;;
+            --folder) folder="$2"; shift 2 ;;
+            --done-check) done_check="$2"; shift 2 ;;
+            --channel-id) channel_id="$2"; shift 2 ;;
+            --provider) provider="$2"; shift 2 ;;
+            --model) model="$2"; shift 2 ;;
+            *) echo "Error: unknown flag for create: $1" >&2; exit 1 ;;
+        esac
+    done
+
+    [[ -z "$channel_id" ]] && channel_id="$CHANNEL_ID"
+
+    if [[ -z "$title" ]]; then
+        echo "Error: --title is required — it names the Discord thread the job lives in." >&2
+        exit 1
+    fi
+
+    if [[ -z "$prompt" && -z "$prompt_file" ]]; then
+        echo "Error: --prompt or --prompt-file is required." >&2
+        exit 1
+    fi
+
+    if [[ -n "$prompt_file" && ! -f "$prompt_file" ]]; then
+        echo "Error: prompt file not found: $prompt_file" >&2
+        exit 1
+    fi
+
+    # The prompt is JSON-encoded by python — never interpolated into JSON by the shell.
+    local payload
+    payload="$(python3 -c "$PY_BUILD_PAYLOAD" \
+        "$title" "$prompt" "$prompt_file" "$folder" "$done_check" \
+        "$channel_id" "$provider" "$model")" || exit 1
+
+    local response
+    response="$(api_request POST /api/jobs "$payload")" || exit 1
+    printf '%s' "$response" | python3 -c "$PY_CREATED"
+}
+
+# === LIST ===
+
+cmd_list() {
+    # Capture before piping: an error inside a pipeline segment could not exit the
+    # script, and python would then choke on an empty body after the real message.
+    local body
+    body="$(api_request GET /api/jobs)" || exit 1
+    printf '%s' "$body" | python3 -c "$PY_LIST"
+}
+
+# === STATUS ===
+
+cmd_status() {
+    local job_id
+    job_id="$(resolve_job_id "$1")" || exit 1
+
+    local body
+    body="$(api_request GET "/api/jobs/${job_id}")" || exit 1
+    printf '%s' "$body" | python3 -c "$PY_STATUS"
+}
+
+# === WATCH ===
+
+cmd_watch() {
+    local given="" interval=30
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --interval) interval="$2"; shift 2 ;;
+            *) [[ -z "$given" ]] && given="$1"; shift ;;
+        esac
+    done
+
+    local job_id
+    job_id="$(resolve_job_id "$given")" || exit 1
+
+    echo "Watching job ${job_id:0:8} every ${interval}s (Ctrl-C stops watching, not the job)."
+
+    local last_signature="" warned="" signature status
+
+    while true; do
+        http_call GET "/api/jobs/${job_id}"
+
+        # A transient network blip must not end the watch — only a definitive
+        # rejection (auth, unknown job) does.
+        if [[ "$HTTP_STATUS" != "200" ]]; then
+            case "$HTTP_STATUS" in
+                000|5*)
+                    if [[ -z "$warned" ]]; then
+                        echo "[$(date +%H:%M:%S)] warning: Kadmos unreachable (HTTP $HTTP_STATUS) — still polling." >&2
+                        warned="yes"
+                    fi
+                    sleep "$interval"
+                    continue
+                    ;;
+                *)
+                    explain_status "$HTTP_STATUS" "$HTTP_BODY"
+                    exit 1
+                    ;;
+            esac
+        fi
+
+        warned=""
+        signature="$(printf '%s' "$HTTP_BODY" | python3 -c "$PY_SIGNATURE")"
+
+        if [[ "$signature" != "$last_signature" ]]; then
+            printf '%s' "$HTTP_BODY" | python3 -c "$PY_TICK"
+            last_signature="$signature"
+        fi
+
+        status="${signature%%|*}"
+
+        case "$status" in
+            completed|failed|abandoned|resumed)
+                echo ""
+                printf '%s' "$HTTP_BODY" | python3 -c "$PY_TERMINAL"
+                if [[ "$status" == "failed" || "$status" == "abandoned" ]]; then
+                    exit 1
+                fi
+                exit 0
+                ;;
+        esac
+
+        sleep "$interval"
+    done
+}
+
+# === THREAD (what Kadmos and the humans said in the Discord thread) ===
+
+cmd_thread() {
+    local job_id
+    job_id="$(resolve_job_id "$1")" || exit 1
+
+    local body thread_id
+    body="$(api_request GET "/api/jobs/${job_id}")" || exit 1
+    thread_id="$(printf '%s' "$body" | python3 -c "$PY_FIELD" thread_id)"
+
+    if [[ -z "$thread_id" ]]; then
+        echo "Error: this job has no Discord thread (it was created without a --title)." >&2
+        echo "Use 'status' to read its fields instead." >&2
+        exit 1
+    fi
+
+    local transcript
+    transcript="$(api_request GET "/api/recall/conversations/${thread_id}?source=discord")" || exit 1
+    printf '%s' "$transcript" | python3 -c "$PY_TRANSCRIPT"
+}
+
+# === CANCEL ===
+
+cmd_cancel() {
+    local job_id
+    job_id="$(resolve_job_id "$1")" || exit 1
+
+    api_request POST "/api/jobs/${job_id}/cancel" >/dev/null
+    echo "Cancellation requested for job ${job_id:0:8}."
+    echo "A running job settles on its next check; a queued one is killed outright."
+}
+
+# === TEST (connectivity + auth + scope) ===
+
+cmd_test() {
+    echo "Kadmos: ${BASE_URL}"
+    echo "Token: ****configured****"
+    echo "Handoff channel: ${CHANNEL_ID}"
+    echo ""
+
+    http_call GET /api/jobs
+
+    case "$HTTP_STATUS" in
+        200)
+            echo "Status: connected — the token is valid and carries the jobs scope."
+            return 0
+            ;;
+        000)
+            echo "Status: cannot reach Kadmos. Are you on the Sytex VPN?"
+            return 1
+            ;;
+        401)
+            echo "Status: token rejected (401). Get a new one with /token in Discord."
+            return 1
+            ;;
+        403)
+            echo "Status: forbidden (403) — your token lacks the jobs scope."
+            echo "Run /token again in Discord to mint a fresh one, then save it with the installer."
+            return 1
+            ;;
+        503)
+            echo "Status: reachable, but background jobs are not enabled on this Kadmos instance."
+            return 1
+            ;;
+        *)
+            echo "Status: error (HTTP $HTTP_STATUS)."
+            [[ -n "$HTTP_BODY" ]] && echo "$HTTP_BODY"
+            return 1
+            ;;
+    esac
+}
+
+# === MAIN ===
+
+show_help() {
+    cat <<'EOF'
+Kadmos Handoff CLI — hand your current work over to Kadmos and follow it from here.
+
+Kadmos runs agents on a box that stays up after your machine sleeps. A handoff is
+a durable background job: it lives in its own Discord thread, keeps running turns
+until its done check passes, and posts the result there.
+
+GETTING A TOKEN:
+  Type /token to the Kadmos bot in Discord — it DMs you a personal bearer token.
+  If you already configured the kadmos-memory skill, that token is reused
+  automatically. The API is reachable over the Sytex VPN only.
+
+COMMANDS:
+  create --title "<short title>" (--prompt "<text>" | --prompt-file <path>)
+    --title <t>                 Names the Discord thread the job lives in (required)
+    --prompt <text>             The continuation instruction for the box-side agent
+    --prompt-file <path>        Read the prompt from a file (preferred — prompts are long)
+    --folder <name>             Working folder inside the box's working directory
+    --done-check '<shell line>' Read-only shell line deciding when the job is DONE:
+                                exit 0 = the deliverable exists, and its last stdout
+                                line is what the job reports as delivered
+    --channel-id <id>           Discord channel (default: the team's development channel)
+    --provider <p> / --model <m>  Override the box's default agent
+
+  list                          Queued + running jobs, one line each
+  status <id>                   One job's full state (plus its result when finished)
+  watch <id> [--interval <s>]   Poll and print only what changed; exits when terminal
+  thread <id>                   The Discord thread transcript (what Kadmos and people said)
+  cancel <id>                   Request cancellation
+  test                          Connectivity + auth + scope check
+  help                          This text
+
+JOB IDS:
+  Every command takes the full 32-character id or a short prefix (the 8 characters
+  the thread's status card shows). A prefix only resolves against ACTIVE jobs —
+  pass the full id for one that already finished.
+
+STATUSES:
+  queued · running · completed · failed · abandoned · resumed
+  watch exits 0 on completed/resumed and non-zero on failed/abandoned.
+
+EXAMPLES:
+  kadmos-handoff test
+  kadmos-handoff create --title "SYT-1234 finish retry logic" \
+      --prompt-file /tmp/handoff.md \
+      --folder mono/SYT-1234-retry-logic \
+      --done-check 'gh pr list --repo Sytex/sytex --head SYT-1234-retry-logic --json url --jq ".[0].url" | grep .'
+  kadmos-handoff list
+  kadmos-handoff watch 1a2b3c4d --interval 60
+  kadmos-handoff thread 1a2b3c4d
+  kadmos-handoff cancel 1a2b3c4d
+
+CONFIG (~/.agent-skills/kadmos-handoff/.env):
+  KADMOS_HANDOFF_TOKEN        Your personal token (falls back to KADMOS_MEMORY_TOKEN)
+  KADMOS_HANDOFF_BASE_URL     Default http://10.31.149.63:7832
+  KADMOS_HANDOFF_CHANNEL_ID   Default 788211006203625483
+EOF
+}
+
+case "$1" in
+    -h|--help|help|"") show_help; exit 0 ;;
+esac
+
+case "$2" in
+    -h|--help) show_help; exit 0 ;;
+esac
+
+case "$1" in
+    create) shift; load_config; cmd_create "$@" ;;
+    list) shift; load_config; cmd_list "$@" ;;
+    status) shift; load_config; cmd_status "$@" ;;
+    watch) shift; load_config; cmd_watch "$@" ;;
+    thread) shift; load_config; cmd_thread "$@" ;;
+    cancel) shift; load_config; cmd_cancel "$@" ;;
+    test) load_config; cmd_test ;;
+    *) echo "Error: unknown command: $1" >&2; echo "" >&2; show_help >&2; exit 1 ;;
+esac
