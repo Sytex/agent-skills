@@ -39,6 +39,12 @@ token per person. The token is saved via the installer
 the user to run `/token` again for a fresh one. If it can't reach Kadmos, the
 user is **not on the Sytex VPN**.
 
+The same token serves every Kadmos skill: `kadmos-handoff` (hand work over to the team
+box) and `kadmos-code` (read the Sytex source code through Kadmos) both read it from
+this skill's `.env`. Both are published in the Sytex KB (org 353) and install with
+`sytex skill install`. Running `/token` again rotates the one token for all of them;
+`kadmos-code`'s setup saves the new value back here.
+
 ## Commands
 
 All commands: `./kadmos-memory <command> [flags]`

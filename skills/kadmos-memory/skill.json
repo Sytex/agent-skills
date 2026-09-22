@@ -2,7 +2,7 @@
   "name": "kadmos-memory",
   "title": "Kadmos Memory",
   "description": "Query Kadmos memory — the full history of Discord messages the Kadmos bot captures. Recall what was discussed, who said what, and what is pending.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "setup_instructions": "Get a personal token by typing /token to the Kadmos bot in Discord (it DMs it to you). /token revoke kills it; one active token per person. The API is only reachable over the Sytex VPN.",
   "fields": [
     {
