@@ -54,7 +54,8 @@ cleanup worktrees --dry-run
 Worktrees are **not** found by globbing well-known paths — that silently missed most of them
 (SYT-11835). Discovery is derived from git:
 
-1. **Repositories** — `find $PROJECTS_DIR -maxdepth 3 -name .git`, each mapped to its main
+1. **Repositories** — `find $PROJECT_ROOTS -maxdepth 3 -name .git` (`~/projects` and the Sytex stack
+   `~/sytex-claude-workspace`, whose `mono/SYT-*` issue worktrees filled the disk while unscanned), each mapped to its main
    worktree via `git rev-parse --git-common-dir`. Nothing is hardcoded, so `back` being a
    symlink, `front` no longer existing, and new repos appearing are all handled.
 2. **Worktrees** — `git worktree list --porcelain` per repo. This is authoritative: it catches
@@ -66,7 +67,8 @@ Worktrees are **not** found by globbing well-known paths — that silently misse
    whose gitdir target is gone, or no git metadata at all and no `.git` in any ancestor. A
    `.git` **directory** means a repository root and is never touched.
 
-Age comes from `git log -1` inside the worktree, **falling back to the directory mtime** when
+Age comes from the latest of `git log -1` and the worktree's own HEAD/reflog mtime (a reset or
+rebase on an open PR is activity even when its newest commit is old), **falling back to the directory mtime** when
 that fails. Previously a broken gitdir link made a worktree immortal: `git log` failed, the age
 was unknown, and the loop skipped it — so the most abandoned directories were exactly the ones
 never cleaned.
@@ -78,7 +80,7 @@ never cleaned.
    are named in the summary.
 2. **NEVER** remove a repository's main worktree, or a directory that still contains a live
    worktree.
-3. **NEVER** sweep `$PROJECTS_DIR` itself, `/home/ubuntu`, `/home`, `/tmp` or `/var` — they hold
+3. **NEVER** sweep a project root itself, `/home/ubuntu`, `/home`, `/tmp` or `/var` — they hold
    far more than worktrees.
 4. **NEVER** remove Docker images used by running containers (except worktree containers being
    cleaned)
