@@ -67,9 +67,11 @@ Worktrees are **not** found by globbing well-known paths — that silently misse
    whose gitdir target is gone, or no git metadata at all and no `.git` in any ancestor. A
    `.git` **directory** means a repository root and is never touched.
 
-Age comes from the latest of `git log -1` and the worktree's own HEAD/reflog mtime (a reset or
-rebase on an open PR is activity even when its newest commit is old), **falling back to the directory mtime** when
-that fails. Previously a broken gitdir link made a worktree immortal: `git log` failed, the age
+Age comes from the latest of `git log -1`, the newest entry in the worktree's reflog and its HEAD
+mtime (a reset or rebase on an open PR is activity even when its newest commit is old), **falling back
+to the directory mtime** when that fails. The reflog is read by its entry date, never its file mtime:
+`git gc` / `reflog expire` rewrite every worktree's reflog at once, which made all of them look 0 days
+old and stopped the cleanup from removing anything. Previously a broken gitdir link made a worktree immortal: `git log` failed, the age
 was unknown, and the loop skipped it — so the most abandoned directories were exactly the ones
 never cleaned.
 
