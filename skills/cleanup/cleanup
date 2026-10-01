@@ -172,10 +172,12 @@ worktree_age_days() {
   fi
   gitdir=$(git -C "$wt_dir" rev-parse --absolute-git-dir 2>/dev/null || echo "")
   if [[ -n "${ts:-}" && -n "$gitdir" ]]; then
-    for f in "$gitdir/HEAD" "$gitdir/logs/HEAD"; do
-      m=$(stat -c %Y "$f" 2>/dev/null || echo 0)
-      (( m > ts )) && ts=$m
-    done
+    # The reflog's newest entry, not logs/HEAD's mtime: gc / reflog expire
+    # rewrite every worktree's reflog at once, which made all of them "0d old".
+    m=$(git -C "$wt_dir" log -g -1 --date=unix --format=%gd 2>/dev/null | grep -o '[0-9]\{9,\}' || echo 0)
+    (( ${m:-0} > ts )) && ts=$m
+    m=$(stat -c %Y "$gitdir/HEAD" 2>/dev/null || echo 0)
+    (( m > ts )) && ts=$m
   fi
   [[ -z "${ts:-}" ]] && ts=$(stat -c %Y "$wt_dir" 2>/dev/null || echo "$now")
   echo $(( (now - ts) / 86400 ))
